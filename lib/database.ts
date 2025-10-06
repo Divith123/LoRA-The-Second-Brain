@@ -203,18 +203,32 @@ export class DatabaseService {
       if (!existingConversation) return;
 
       // If password provided and conversation has encrypted data, update encrypted storage
+      // and persist the new encryptedPath returned by the storage layer.
+      let updatedEncryptedPath: string | undefined = undefined;
       if (password && existingConversation.encryptedPath) {
-        await EncryptedConversationStorage.updateConversation(
-          existingConversation.encryptedPath,
-          updates,
-          password
-        );
+        try {
+          const updatedEncrypted = await EncryptedConversationStorage.updateConversation(
+            existingConversation.encryptedPath,
+            updates,
+            password
+          );
+          updatedEncryptedPath = updatedEncrypted.encryptedPath;
+        } catch (err) {
+          console.error('Failed to update encrypted conversation storage:', err);
+          // Fallthrough to still update DB fields (without changing encryptedPath)
+        }
       }
 
-      await db.conversations.update(id, {
+      const dbUpdates: any = {
         ...updates,
-        updatedAt: new Date().toISOString()
-      });
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (updatedEncryptedPath) {
+        dbUpdates.encryptedPath = updatedEncryptedPath;
+      }
+
+      await db.conversations.update(id, dbUpdates);
     } catch (error) {
       console.error('Error updating conversation:', error);
     }

@@ -30,7 +30,8 @@ export function SeeAllChatsDialog({ open, onOpenChange, type, onSelectConversati
     try {
       await updateConversationMutation.mutateAsync({
         id: conversationId,
-        updates: { pinned: !currentlyPinned }
+        updates: { pinned: !currentlyPinned },
+        password: currentUser?.password,
       });
       toast.success(currentlyPinned ? "Unpinned conversation" : "Pinned conversation");
     } catch (error) {
