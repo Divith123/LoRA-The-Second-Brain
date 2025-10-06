@@ -45,34 +45,39 @@ export default function Chat() {
     try {
       const conversation = await DatabaseService.getConversationById(conversationId);
       if (conversation) {
-        // If conversation has encrypted data, try to load the decrypted messages
         if (conversation.encryptedPath && currentUser?.password) {
           try {
-            const decryptedConversation = await EncryptedConversationStorage.loadConversation(
+            const decrypted = await EncryptedConversationStorage.loadConversation(
               conversation.encryptedPath,
               currentUser.password
             );
-            setMessages(decryptedConversation.messages || []);
-            onModelChange(decryptedConversation.model || '');
+            setMessages(decrypted.messages || []);
+            if (!currentModel) onModelChange(decrypted.model || "");
           } catch (error) {
-            console.error('Failed to decrypt conversation:', error);
-            // Fallback to unencrypted messages if available
-            setMessages(conversation.messages || []);
-            onModelChange(conversation.model || '');
-            toast.error('Failed to load encrypted conversation - using unencrypted data');
+            console.error("Failed to decrypt conversation:", error);
+
+            // only fall back if there is real plaintext content
+            const hasPlain = Array.isArray(conversation.messages) && conversation.messages.length > 0;
+            if (hasPlain) {
+              setMessages(conversation.messages);
+              if (!currentModel) onModelChange(conversation.model || "");
+              toast.error("Failed to load encrypted conversation - using unencrypted data");
+            } else {
+              // keep whatever is currently shown; don’t overwrite with empty
+              toast.error("Failed to load encrypted conversation");
+            }
           }
         } else {
-          // Use unencrypted conversation data
           setMessages(conversation.messages || []);
-          onModelChange(conversation.model || '');
+          if (!currentModel) onModelChange(conversation.model || "");
         }
       }
     } catch (error) {
-      console.error('Error loading conversation:', error);
-      toast.error('Failed to load conversation');
+      console.error("Error loading conversation:", error);
+      toast.error("Failed to load conversation");
       setMessages([]);
     }
-  }, [currentUser, onModelChange]);
+  }, [currentUser, currentModel, onModelChange]);
 
   // Load conversations when user changes
   useEffect(() => {
@@ -103,8 +108,8 @@ export default function Chat() {
     try {
       const title = messages.length > 0 && messages[0].content
         ? ((messages[0].content as string).length > 50
-            ? (messages[0].content as string).slice(0, 50) + '...'
-            : (messages[0].content as string))
+          ? (messages[0].content as string).slice(0, 50) + '...'
+          : (messages[0].content as string))
         : 'New Conversation';
 
       if (currentConversationId) {
@@ -164,15 +169,34 @@ export default function Chat() {
 
   const handleModelChange = async (newModel: string) => {
     onModelChange(newModel);
-    if (messages.length > 0) {
-      await saveConversation(messages, newModel);
+
+    // persist on the conversation record right away
+    if (currentUser && currentConversationId) {
+      try {
+        await updateConversationMutation.mutateAsync({
+          id: currentConversationId,
+          updates: { model: newModel },
+          password: currentUser.password
+        });
+      } catch (e) {
+        console.error("Failed to persist model change:", e);
+      }
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleSubmit = async ({
+    input,
+    model,
+    fileIds,
+    files,
+  }: {
+    input: string;
+    model: string;
+    fileIds?: string[];
+    files?: { id: string; name: string; size?: number }[];
+  }) => {
     if (input.trim().length === 0) return;
-    if (!currentModel) {
+    if (!model) {
       toast.error("Please select a model first");
       return;
     }
@@ -184,14 +208,22 @@ export default function Chat() {
     setInput("");
 
     try {
-      // Add an empty assistant message to show typing indicator
+      // show typing bubble
       const messagesWithAssistant = [
         ...newMessages,
-        { content: "", role: "assistant" as const }
+        { content: "", role: "assistant" as const },
       ];
       setMessages(messagesWithAssistant);
 
-      const result = await continueConversation(newMessages, currentModel);
+      // If multiple files attached, prepend a system-level instruction listing them
+      const fileListText = files && files.length > 0
+        ? `User attached files:\n${files.map((f, i) => `${i + 1}. ${f.name} (${f.size ?? 'unknown'} bytes)`).join('\n')}\n\nPlease use all attached files together when answering.`
+        : "";
+
+      const messagesToSend = fileListText ? [{ role: 'system' as const, content: fileListText }, ...newMessages] : newMessages;
+
+      // pass fileIds to RAG-enabled server action (server will run retrieval internally)
+      const result = await continueConversation(messagesToSend, model, { fileIds });
 
       setIsStreaming(true);
       let finalAssistantContent = "";
@@ -204,28 +236,27 @@ export default function Chat() {
       setIsStreaming(false);
       setStreamingContent("");
 
-      // Update messages with final content
-      setMessages(prevMessages => {
-        const updatedMessages = [...prevMessages];
-        updatedMessages[updatedMessages.length - 1] = {
+      // finalize assistant message
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
           role: "assistant",
           content: finalAssistantContent,
         };
-        return updatedMessages;
+        return updated;
       });
 
-      // Save conversation with the complete messages
+      // persist
       const finalMessages: CoreMessage[] = [
+        // keep system file context out of the persisted conversation messages
         ...newMessages,
-        { role: "assistant", content: finalAssistantContent }
+        { role: "assistant", content: finalAssistantContent },
       ];
-      await saveConversation(finalMessages, currentModel);
-
+      await saveConversation(finalMessages, model);
     } catch (error) {
-      console.error('Error in conversation:', error);
-      // Remove the empty assistant message on error and restore user message only
-      setMessages(newMessages);
-      toast.error((error as Error).message || 'Failed to get AI response');
+      console.error("Error in conversation:", error);
+      setMessages(newMessages); // drop empty assistant on error
+      toast.error((error as Error).message || "Failed to get AI response");
     }
   };
 

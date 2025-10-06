@@ -5,13 +5,14 @@ import Textarea from "react-textarea-autosize";
 import { AiOutlineEnter } from "react-icons/ai";
 import { Upload, Brain, Search, BookOpen, Clock, X } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import FilePreviewModal from "./file-preview-modal";
 
 type AIMode = "think-longer" | "deep-research" | "web-search" | "study";
 
 type ChatInputProps = {
   input: string;
   setInput: (input: string) => void;
-  handleSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  handleSubmit: (payload: { input: string; model: string; fileIds?: string[]; files?: { id: string; name: string; size?: number }[] }) => Promise<void>;
   model: string;
   handleModelChange: (model: string) => void;
 };
@@ -27,6 +28,8 @@ export default function ChatInput({
   const [showModeSelector, setShowModeSelector] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size?: number }>>([]);
+  const [previewFileId, setPreviewFileId] = useState<string | null>(null);
 
   const modes = useMemo(() => [
     { id: "think-longer" as AIMode, label: "Think Longer", icon: Clock, shortcut: "/think" },
@@ -65,10 +68,42 @@ export default function ChatInput({
     textareaRef.current?.focus();
   };
 
-  const handleFileUpload = () => {
-    console.log("File upload clicked");
-    textareaRef.current?.focus();
+  const handleFileUpload = async () => {
+    const inputEl = document.createElement("input");
+    inputEl.type = "file";
+    inputEl.multiple = true;
+    inputEl.accept = ".pdf,.docx,.txt,.csv"; // adjust as you like
+    inputEl.onchange = async (e: any) => {
+      const files = e.target.files;
+      if (!files?.length) return;
+
+      const form = new FormData();
+      for (const f of files) form.append("files", f);
+
+      const res = await fetch("/api/files", { method: "POST", body: form });
+      const data = await res.json();
+      if (res.ok && data?.files) {
+        setAttachments(prev => [...prev, ...data.files]);
+      }
+    };
+    inputEl.click();
   };
+
+  // helpers
+  const prettyBytes = (n: number) => {
+    if (!n && n !== 0) return "";
+    const u = ["B","KB","MB","GB"]; let i=0; let v=n;
+    while (v>=1024 && i<u.length-1){ v/=1024; i++; }
+    return `${v.toFixed(i?1:0)} ${u[i]}`;
+  };
+  const truncate = (s: string, n = 28) =>
+    s.length > n ? s.slice(0, n - 3) + "..." : s;
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(f => f.id !== id));
+  };
+
+  // ...existing code...
 
   const getPlaceholder = () => {
     if (selectedMode) {
@@ -84,15 +119,17 @@ export default function ChatInput({
 
     setIsSubmitting(true);
     try {
-      await handleSubmit(e);
-      // Clear mode after successful submission
+      await handleSubmit({
+        input,
+        model,
+        fileIds: attachments.map(a => a.id),
+        files: attachments.map(a => ({ id: a.id, name: a.name, size: a.size })),
+      });
       setSelectedMode(null);
       setShowModeSelector(false);
-    } catch (error) {
-      console.error('Submission error:', error);
+      // optionally: setAttachments([]);
     } finally {
       setIsSubmitting(false);
-      // Don't auto-focus after submission to prevent jumping
     }
   };
 
@@ -172,6 +209,8 @@ export default function ChatInput({
               onKeyDown={handleKeyDown}
             />
 
+            {/* attachments moved below textarea to avoid overlapping the send button */}
+
             {/* Upload button */}
             <Button
               type="button"
@@ -194,6 +233,39 @@ export default function ChatInput({
               <AiOutlineEnter size={16} />
             </Button>
           </div>
+
+          {attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2 w-full pl-10">
+              {attachments.map(a => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setPreviewFileId(a.id)}
+                  className="group inline-flex items-center max-w-full rounded-full border border-border/60 bg-muted/40 px-2.5 py-1.5 text-xs hover:bg-muted transition-colors"
+                  title={a.name}
+                >
+                  <svg viewBox="0 0 24 24" className="mr-1.5 h-3.5 w-3.5 opacity-70" aria-hidden>
+                    <path fill="currentColor" d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2Z M14,9V3.5L19.5,9H14Z" />
+                  </svg>
+
+                  <span className="truncate max-w-[16rem]">{truncate(a.name)}</span>
+                  {typeof a.size === "number" && (
+                    <span className="ml-2 tabular-nums text-muted-foreground">{prettyBytes(a.size)}</span>
+                  )}
+
+                  <span
+                    onClick={(e) => { e.stopPropagation(); removeAttachment(a.id); }}
+                    className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-foreground/10"
+                    aria-label={`Remove ${a.name}`}
+                  >
+                    ✕
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <FilePreviewModal fileId={previewFileId} onClose={() => setPreviewFileId(null)} />
 
           {/* Mode selector dropdown */}
           {showModeSelector && (

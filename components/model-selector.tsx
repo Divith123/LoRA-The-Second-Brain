@@ -22,7 +22,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
   const { data: localFiles = [], isLoading: isLoadingLocalFiles } = useLocalFiles();
   const { data: hfModels = [], isLoading: isLoadingHF } = useHuggingFaceModels(searchQuery);
   const { data: isOllamaRunning = false } = useOllamaStatus();
-  const downloadMutation = useDownloadModel();
+  const { startDownload, cancelDownload, isPending } = useDownloadModel();
   const deleteMutation = useDeleteModel();
 
   const getModelIcon = (modelName: string) => {
@@ -47,7 +47,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
         [modelId]: { progress: 0, message: 'Starting download...' }
       }));
 
-      await downloadMutation.mutateAsync({
+      const ok = await startDownload({
         modelId,
         downloadSource,
         onProgress: (progress) => {
@@ -56,19 +56,19 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
             [modelId]: { progress: progress.progress, message: progress.message }
           }));
 
-          if (progress.status === 'completed') {
+          if (progress.status === 'completed' || progress.status === 'cancelled') {
             setTimeout(() => {
               setDownloadingModels(prev => {
                 const updated = { ...prev };
                 delete updated[modelId];
                 return updated;
               });
-            }, 2000); // Remove after 2 seconds
+            }, 500);
           }
         }
       });
 
-      toast.success(`Downloaded ${modelId} successfully`);
+      if (ok) toast.success(`Downloaded ${modelId} successfully`);
     } catch (error) {
       console.error('Download error:', error);
       setDownloadingModels(prev => {
@@ -383,15 +383,29 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                           )}
                           {downloadingModels[model.id] ? (
                             <div className="flex flex-col items-center gap-1 min-w-[80px]">
+                              {/* Progress bar */}
                               <div className="w-full bg-muted rounded-full h-1.5">
                                 <div
                                   className="bg-primary h-1.5 rounded-full transition-all duration-300"
                                   style={{ width: `${downloadingModels[model.id].progress}%` }}
                                 />
                               </div>
+
+                              {/* Percentage text */}
                               <span className="text-xs text-muted-foreground">
                                 {downloadingModels[model.id].progress}%
                               </span>
+
+                              {/* Cancel button */}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => cancelDownload()} // <-- call hook cancel
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10 mt-1"
+                                title="Cancel download"
+                              >
+                                Cancel
+                              </Button>
                             </div>
                           ) : (
                             <div className="flex gap-1">
@@ -399,7 +413,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleDownload(model.id, 'direct')}
-                                disabled={downloadMutation.isPending}
+                                disabled={isPending}
                                 className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950"
                                 title="Download directly to local folder"
                               >
@@ -410,7 +424,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => handleDownload(model.id, 'ollama')}
-                                  disabled={downloadMutation.isPending}
+                                  disabled={isPending}
                                   className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950"
                                   title="Download via Ollama"
                                 >
@@ -419,6 +433,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                               )}
                             </div>
                           )}
+
 
                           {(isDownloadedOllama || isDownloadedLocal) && isSelected && (
                             <Check size={16} className="text-primary" />

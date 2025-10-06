@@ -82,32 +82,74 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
+// helpers
+function formatBytes(bytes?: number) {
+  if (!bytes || bytes <= 0) return "Unknown";
+  const u = ["B","KB","MB","GB","TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${u[i]}`;
+}
+
+async function headSize(repoId: string, rfilename: string) {
+  const urls = [
+    `https://huggingface.co/${repoId}/resolve/main/${encodeURIComponent(rfilename)}`,
+    `https://huggingface.co/${repoId}/resolve/main/${encodeURIComponent(rfilename)}?download=true`,
+  ];
+  for (const url of urls) {
+    const r = await fetch(url, { method: "HEAD" });
+    const len = r.headers.get("content-length");
+    if (r.ok && len) return Number(len);
+  }
+  return undefined;
+}
+
+// UPDATED
 async function handleHuggingFaceModels(query: string) {
   try {
-    const response = await fetch(
+    // 1) search list (fast)
+    const res = await fetch(
       `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&limit=50&sort=downloads&direction=-1`
     );
+    if (!res.ok) throw new Error("Failed to fetch models from Hugging Face");
+    const models = await res.json();
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch models from Hugging Face');
-    }
+    // 2) enrich each row
+    const formatted = await Promise.all(
+      models.map(async (m: any) => {
+        // ── format: be generous (tags OR any .gguf filename)
+        const hasGgufTag = Array.isArray(m.tags) && m.tags.some((t: string) => t.toLowerCase() === "gguf");
+        const ggufFile = m.siblings?.find((s: any) => s?.rfilename?.toLowerCase?.().endsWith(".gguf"));
+        const format = hasGgufTag || ggufFile ? "GGUF" : "UNKNOWN";
 
-    const models = await response.json();
+        // ── size: try detail.gguf.total; else HEAD the .gguf file; else Unknown
+        let sizeStr = "Unknown";
+        try {
+          const detail = await fetch(`https://huggingface.co/api/models/${m.id}`).then(r => r.ok ? r.json() : null);
+          const ggufTotal = detail?.gguf?.total; // bytes, if present on some repos
+          if (typeof ggufTotal === "number") sizeStr = formatBytes(ggufTotal);
+        } catch { /* ignore */ }
 
-    const formattedModels = models.map((model: any) => ({
-      id: model.id,
-      name: model.id.split('/')[1],
-      size: extractModelSize(model.id),
-      format: detectFormat(model.tags || []),
-      downloads: model.downloads || 0,
-      likes: model.likes || 0,
-      tags: model.tags || [],
-      author: model.id.split('/')[0]
-    }));
+        if (sizeStr === "Unknown" && ggufFile?.rfilename) {
+          const bytes = await headSize(m.id, ggufFile.rfilename);
+          sizeStr = formatBytes(bytes);
+        }
 
-    return NextResponse.json(formattedModels);
-  } catch (error) {
-    console.error('HuggingFace API error:', error);
+        return {
+          id: m.id,
+          name: m.id.split("/")[1] || m.id,
+          author: m.author || m.id.split("/")[0] || "unknown",
+          downloads: m.downloads ?? 0,
+          likes: m.likes ?? 0,
+          tags: m.tags ?? [],
+          size: sizeStr,   // ✅ no more “Unknown” when HEAD works
+          format,          // ✅ shows GGUF based on tags/filenames
+        };
+      })
+    );
+
+    return NextResponse.json(formatted);
+  } catch (err) {
+    console.error("HuggingFace API error:", err);
     return NextResponse.json([], { status: 500 });
   }
 }

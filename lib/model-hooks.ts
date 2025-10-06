@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { HuggingFaceModel, LocalModel } from "@/lib/model-service";
+import { useRef, useState } from "react";
 
 // Query keys
 export const modelQueryKeys = {
@@ -85,75 +86,86 @@ export function useOllamaStatus() {
 // Download model mutation with progress tracking
 export function useDownloadModel() {
   const queryClient = useQueryClient();
+  const controllerRef = useRef<AbortController | null>(null);
+  const [isPending, setIsPending] = useState(false);
 
-  return useMutation({
-    mutationFn: async ({ modelId, downloadSource = 'ollama', onProgress }: {
-      modelId: string;
-      downloadSource?: 'ollama' | 'direct';
-      onProgress?: (progress: { status: string; progress: number; message: string }) => void;
-    }) => {
-      const host = typeof window !== 'undefined' ? localStorage.getItem('ollama_host') : null;
-      const response = await fetch('/api/models', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+  async function startDownload({
+    modelId,
+    downloadSource = "ollama",
+    onProgress,
+  }: {
+    modelId: string;
+    downloadSource?: "ollama" | "direct";
+    onProgress?: (p: { status: string; progress: number; message: string }) => void;
+  }) {
+    setIsPending(true);
+    controllerRef.current = new AbortController();
+
+    try {
+      const host =
+        typeof window !== "undefined" ? localStorage.getItem("ollama_host") : null;
+
+      const res = await fetch("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ modelId, downloadSource, host }),
+        signal: controllerRef.current.signal, // ✅ enables cancel
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to start download');
-      }
+      if (!res.ok) throw new Error("Failed to start download");
 
-      const reader = response.body?.getReader();
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
       const decoder = new TextDecoder();
-
-      if (!reader) {
-        throw new Error('No response body');
-      }
-
-      let buffer = '';
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
-
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            const eventType = line.slice(7);
-            continue;
-          }
-
-          if (line.startsWith('data: ')) {
+          if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
               onProgress?.(data);
 
-              if (data.status === 'completed') {
-                // Invalidate both local models and local files queries
-                queryClient.invalidateQueries({ queryKey: modelQueryKeys.localModels });
-                queryClient.invalidateQueries({ queryKey: modelQueryKeys.localFiles });
+              if (data.status === "completed") {
+                queryClient.invalidateQueries({ queryKey: ["localModels"] });
+                queryClient.invalidateQueries({ queryKey: ["localFiles"] });
                 return true;
               }
-
-              if (data.status === 'error') {
-                throw new Error(data.message);
-              }
-            } catch (error) {
-              console.error('Failed to parse progress data:', error);
+              if (data.status === "error") throw new Error(data.message);
+            } catch {
+              /* ignore parse blips */
             }
           }
         }
       }
 
       return true;
-    },
-  });
+    } catch (err: any) {
+      // Treat aborts as a normal cancel, not an error
+      if (err?.name === "AbortError" || err?.message?.includes("aborted")) {
+        onProgress?.({ status: "cancelled", progress: 0, message: "Cancelled" });
+        return false;
+      }
+      throw err;
+    } finally {
+      setIsPending(false);
+      controllerRef.current = null;
+    }
+  }
+
+  function cancelDownload() {
+    controllerRef.current?.abort();
+  }
+
+  return { startDownload, cancelDownload, isPending };
 }
 
 // Delete model mutation
