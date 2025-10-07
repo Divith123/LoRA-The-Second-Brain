@@ -3,7 +3,7 @@
 import { createStreamableValue } from "ai/rsc";
 import { CoreMessage } from "ai";
 import { modelService } from "@/lib/model-service";
-import { rateLimit } from "@/lib/ratelimit";
+// import { rateLimit } from "@/lib/ratelimit";
 import { headers } from "next/headers";
 import fsSync from 'fs';
 import path from 'path';
@@ -90,11 +90,11 @@ export async function continueConversation(
   model: string,
   opts?: { fileIds?: string[] } // 🔥 ADDED: accept attached file IDs
 ) {
-  const ip = headers().get("x-forwarded-for") ?? "unknown";
-  const isLimited = rateLimit(ip);
-  if (isLimited) {
-    throw new Error(`Rate Limit Exceeded for ${ip}`);
-  }
+  // const ip = headers().get("x-forwarded-for") ?? "unknown";
+  // const isLimited = rateLimit(ip);
+  // if (isLimited) {
+  //   throw new Error(`Rate Limit Exceeded for ${ip}`);
+  // }
 
   // 🔥 ADDED: If the client attached files, try to read and extract their text on the server
   let fileContext = "";
