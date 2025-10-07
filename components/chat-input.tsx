@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "./ui/button";
+import { ProviderType } from "@/lib/model-types";
 import Textarea from "react-textarea-autosize";
 import { AiOutlineEnter } from "react-icons/ai";
 import { Upload, Brain, Search, BookOpen, Clock, X } from "lucide-react";
@@ -14,7 +15,7 @@ type ChatInputProps = {
   setInput: (input: string) => void;
   handleSubmit: (payload: { input: string; model: string; fileIds?: string[]; files?: { id: string; name: string; size?: number }[] }) => Promise<void>;
   model: string;
-  handleModelChange: (model: string) => void;
+  handleModelChange: (model: string, provider?: ProviderType) => void;
 };
 
 export default function ChatInput({

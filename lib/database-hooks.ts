@@ -15,7 +15,13 @@ export const queryKeys = {
 export function useUsers() {
   return useQuery({
     queryKey: queryKeys.users,
-    queryFn: DatabaseService.getAllUsers,
+    queryFn: () => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        return Promise.resolve([]);
+      }
+      return DatabaseService.getAllUsers();
+    },
+    enabled: typeof window !== 'undefined' && !!window.indexedDB,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
@@ -23,8 +29,13 @@ export function useUsers() {
 export function useUser(userId: string) {
   return useQuery({
     queryKey: queryKeys.user(userId),
-    queryFn: () => DatabaseService.getUserById(userId),
-    enabled: !!userId,
+    queryFn: () => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        return Promise.resolve(null);
+      }
+      return DatabaseService.getUserById(userId);
+    },
+    enabled: !!userId && typeof window !== 'undefined' && !!window.indexedDB,
   });
 }
 
@@ -68,8 +79,13 @@ export function useDeleteUser() {
 export function useConversations(userId: string) {
   return useQuery({
     queryKey: queryKeys.conversations(userId),
-    queryFn: () => DatabaseService.getConversationsByUserId(userId),
-    enabled: !!userId,
+    queryFn: () => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        return Promise.resolve([]);
+      }
+      return DatabaseService.getConversationsByUserId(userId);
+    },
+    enabled: !!userId && typeof window !== 'undefined' && !!window.indexedDB,
     staleTime: 2 * 60 * 1000, // 2 minutes
   });
 }
@@ -77,8 +93,13 @@ export function useConversations(userId: string) {
 export function useConversation(conversationId: string) {
   return useQuery({
     queryKey: queryKeys.conversation(conversationId),
-    queryFn: () => DatabaseService.getConversationById(conversationId),
-    enabled: !!conversationId,
+    queryFn: () => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        return Promise.resolve(null);
+      }
+      return DatabaseService.getConversationById(conversationId);
+    },
+    enabled: !!conversationId && typeof window !== 'undefined' && !!window.indexedDB,
   });
 }
 
@@ -146,8 +167,13 @@ export function useDeleteConversation() {
 export function useFiles(userId: string) {
   return useQuery({
     queryKey: queryKeys.files(userId),
-    queryFn: () => DatabaseService.getFilesByUserId(userId),
-    enabled: !!userId,
+    queryFn: () => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        return Promise.resolve([]);
+      }
+      return DatabaseService.getFilesByUserId(userId);
+    },
+    enabled: !!userId && typeof window !== 'undefined' && !!window.indexedDB,
     staleTime: 2 * 60 * 1000, // 2 minutes
   });
 }
@@ -227,8 +253,13 @@ export function useDeleteFile() {
 export function useProjects(userId: string) {
   return useQuery({
     queryKey: queryKeys.projects(userId),
-    queryFn: () => DatabaseService.getProjectsByUserId(userId),
-    enabled: !!userId,
+    queryFn: () => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        return Promise.resolve([]);
+      }
+      return DatabaseService.getProjectsByUserId(userId);
+    },
+    enabled: !!userId && typeof window !== 'undefined' && !!window.indexedDB,
     staleTime: 2 * 60 * 1000, // 2 minutes
   });
 }

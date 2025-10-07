@@ -1,4 +1,5 @@
 import { EncryptionService } from './encryption';
+import { ProviderType } from './model-types';
 
 // Browser-compatible encrypted conversation storage using localStorage
 export interface EncryptedConversationData {
@@ -7,6 +8,7 @@ export interface EncryptedConversationData {
   title: string;
   messages: any[]; // CoreMessage[] from ai package
   model: string;
+  provider?: ProviderType;
   createdAt: string;
   updatedAt: string;
   pinned?: boolean;

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { HuggingFaceModel, LocalModel } from "@/lib/model-service";
+import { HuggingFaceModel, LocalModel, ProviderModel, ProviderType } from "@/lib/model-types";
 import { useRef, useState } from "react";
 
 // Query keys
@@ -8,7 +8,23 @@ export const modelQueryKeys = {
   localModels: ['localModels'] as const,
   localFiles: ['localFiles'] as const,
   ollamaStatus: ['ollamaStatus'] as const,
+  providerModels: (provider: ProviderType) => ['providerModels', provider] as const,
 };
+
+// Fetch provider models
+export function useProviderModels(provider: ProviderType) {
+  return useQuery({
+    queryKey: modelQueryKeys.providerModels(provider),
+    queryFn: async (): Promise<ProviderModel[]> => {
+      const response = await fetch(`/api/models?type=provider&provider=${provider}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${provider} models`);
+      }
+      return response.json();
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
 
 // Fetch Hugging Face models
 export function useHuggingFaceModels(query: string = 'gguf') {

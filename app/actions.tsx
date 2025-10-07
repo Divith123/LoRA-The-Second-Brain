@@ -10,6 +10,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { retrieveRelevant } from "@/lib/rag-store";
 import { extractText } from '@/lib/file-processing';
+import { ProviderType } from "@/lib/model-types";
 
 let localInferenceService: any = null;
 
@@ -88,6 +89,7 @@ type Msg = { role: "system" | "user" | "assistant"; content: string };
 export async function continueConversation(
   messages: CoreMessage[],
   model: string,
+  provider: ProviderType = 'ollama',
   opts?: { fileIds?: string[] } // 🔥 ADDED: accept attached file IDs
 ) {
   // const ip = headers().get("x-forwarded-for") ?? "unknown";
@@ -170,7 +172,7 @@ export async function continueConversation(
   }
 
   // 🔥 CHANGED: pass context-augmented messages
-  const response = await modelService.generateResponse(model, withContext, {
+  const response = await modelService.generateResponse(provider, model, withContext, {
     temperature: 0.8,
     topP: 0.7,
     maxTokens: 1024,

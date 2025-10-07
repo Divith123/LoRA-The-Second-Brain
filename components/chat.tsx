@@ -22,6 +22,7 @@ import { Pin, MoreVertical } from "lucide-react";
 import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { EncryptedConversationStorage } from "@/lib/encrypted-conversation-storage";
+import { ProviderType } from "@/lib/model-types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -29,7 +30,7 @@ export const maxDuration = 30;
 export default function Chat() {
   const { currentUser } = useUser();
   const { currentConversationId, setCurrentConversationId } = useConversation();
-  const { currentModel, onModelChange } = useModel();
+  const { currentModel, currentProvider, onModelChange } = useModel();
   const { data: conversations = [], isLoading: isLoadingConversations } = useConversations(currentUser?.id || '');
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -45,27 +46,25 @@ export default function Chat() {
     try {
       const conversation = await DatabaseService.getConversationById(conversationId);
       if (conversation) {
-        if (conversation.encryptedPath && currentUser?.password) {
-          try {
-            const decrypted = await EncryptedConversationStorage.loadConversation(
-              conversation.encryptedPath,
-              currentUser.password
-            );
-            setMessages(decrypted.messages || []);
-            if (!currentModel) onModelChange(decrypted.model || "");
-          } catch (error) {
-            console.error("Failed to decrypt conversation:", error);
-
-            // only fall back if there is real plaintext content
-            const hasPlain = Array.isArray(conversation.messages) && conversation.messages.length > 0;
-            if (hasPlain) {
-              setMessages(conversation.messages);
-              if (!currentModel) onModelChange(conversation.model || "");
-              toast.error("Failed to load encrypted conversation - using unencrypted data");
-            } else {
-              // keep whatever is currently shown; don’t overwrite with empty
-              toast.error("Failed to load encrypted conversation");
+        if (conversation.encryptedPath) {
+          if (currentUser?.password) {
+            try {
+              const decrypted = await EncryptedConversationStorage.loadConversation(
+                conversation.encryptedPath,
+                currentUser.password
+              );
+              setMessages(decrypted.messages || []);
+              if (!currentModel) onModelChange(decrypted.model || "");
+            } catch (error) {
+              console.error("Failed to decrypt conversation:", error);
+              toast.warning("This conversation could not be decrypted. Starting with empty chat.");
+              setMessages([]);
             }
+          } else {
+            // Encrypted conversation but no password available
+            setMessages([]);
+            if (!currentModel) onModelChange("");
+            toast.warning("This conversation is encrypted. Please log in with your password to access it.");
           }
         } else {
           setMessages(conversation.messages || []);
@@ -167,15 +166,15 @@ export default function Chat() {
     }
   };
 
-  const handleModelChange = async (newModel: string) => {
-    onModelChange(newModel);
+  const handleModelChange = async (newModel: string, newProvider?: ProviderType) => {
+    onModelChange(newModel, newProvider);
 
     // persist on the conversation record right away
     if (currentUser && currentConversationId) {
       try {
         await updateConversationMutation.mutateAsync({
           id: currentConversationId,
-          updates: { model: newModel },
+          updates: { model: newModel, provider: newProvider },
           password: currentUser.password
         });
       } catch (e) {
@@ -223,7 +222,7 @@ export default function Chat() {
       const messagesToSend = fileListText ? [{ role: 'system' as const, content: fileListText }, ...newMessages] : newMessages;
 
       // pass fileIds to RAG-enabled server action (server will run retrieval internally)
-      const result = await continueConversation(messagesToSend, model, { fileIds });
+      const result = await continueConversation(messagesToSend, model, currentProvider, { fileIds });
 
       setIsStreaming(true);
       let finalAssistantContent = "";
@@ -293,7 +292,7 @@ export default function Chat() {
               <p><strong>Offline AI:</strong> Powered by engines like llama.cpp, Ollama, or vLLM depending on hardware.</p>
               <p><strong>Open Model Freedom:</strong> Lets you use LoRA adapters to fine-tune models for coding, teaching, research, or creative writing.</p>
               <p><strong>Second Brain Features:</strong> Lets you recall past thoughts: &quot;What did I plan last Monday?&quot; AI builds connections between your ideas like Obsidian + memory + AI.</p>
-              <p><strong>Privacy & Control:</strong> Optional encryption so even if someone grabs your files, they can't read them.</p>
+              <p><strong>Privacy & Control:</strong> Optional encryption so even if someone grabs your files, they can&apos;t read them.</p>
               <p><strong>Custom Branding & UX:</strong> Optimized for speed, memory, and usability so it feels polished.</p>
             </div>
           </div>

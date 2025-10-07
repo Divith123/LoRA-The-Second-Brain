@@ -26,7 +26,7 @@ export class EncryptionService {
       {
         name: 'PBKDF2',
         salt: salt as BufferSource,
-        iterations: 100000, // High iteration count for security
+        iterations: 200000, // Increased from 100,000 for maximum security
         hash: 'SHA-256',
       },
       keyMaterial,
@@ -77,8 +77,14 @@ export class EncryptionService {
       combined.set(iv, salt.length);
       combined.set(new Uint8Array(encrypted), salt.length + iv.length);
 
-      // Convert to base64 for storage
-      return btoa(String.fromCharCode(...Array.from(combined)));
+      // Convert to base64 in chunks to avoid stack overflow
+      let binaryString = '';
+      const chunkSize = 8192; // Process in 8KB chunks
+      for (let i = 0; i < combined.length; i += chunkSize) {
+        const chunk = combined.slice(i, i + chunkSize);
+        binaryString += String.fromCharCode(...Array.from(chunk));
+      }
+      return btoa(binaryString);
     } catch (error) {
       console.error('Encryption failed:', error);
       throw new Error('Failed to encrypt data');
@@ -90,10 +96,16 @@ export class EncryptionService {
    */
   static async decrypt(encryptedData: string, password: string): Promise<string> {
     try {
-      // Convert from base64
-      const combined = new Uint8Array(
-        atob(encryptedData).split('').map(char => char.charCodeAt(0))
-      );
+      // Convert from base64 in chunks to avoid stack overflow
+      const binaryString = atob(encryptedData);
+      const combined = new Uint8Array(binaryString.length);
+      const chunkSize = 8192; // Process in 8KB chunks
+      for (let i = 0; i < binaryString.length; i += chunkSize) {
+        const chunk = binaryString.slice(i, i + chunkSize);
+        for (let j = 0; j < chunk.length; j++) {
+          combined[i + j] = chunk.charCodeAt(j);
+        }
+      }
 
       // Extract salt, iv, and encrypted data
       const salt = combined.slice(0, 16);
@@ -126,7 +138,16 @@ export class EncryptionService {
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
     const hash = await this.crypto.subtle.digest('SHA-256', data);
-    return btoa(String.fromCharCode(...Array.from(new Uint8Array(hash))));
+    
+    // Convert to base64 in chunks to avoid stack overflow
+    const hashArray = new Uint8Array(hash);
+    let binaryString = '';
+    const chunkSize = 8192; // Process in 8KB chunks
+    for (let i = 0; i < hashArray.length; i += chunkSize) {
+      const chunk = hashArray.slice(i, i + chunkSize);
+      binaryString += String.fromCharCode(...Array.from(chunk));
+    }
+    return btoa(binaryString);
   }
 
   /**
@@ -143,6 +164,14 @@ export class EncryptionService {
   static generateSecureToken(length: number = 32): string {
     const array = new Uint8Array(length);
     this.crypto.getRandomValues(array);
-    return btoa(String.fromCharCode(...Array.from(array))).replace(/[+/=]/g, '').substring(0, length);
+    
+    // Convert to base64 in chunks to avoid stack overflow
+    let binaryString = '';
+    const chunkSize = 8192; // Process in 8KB chunks
+    for (let i = 0; i < array.length; i += chunkSize) {
+      const chunk = array.slice(i, i + chunkSize);
+      binaryString += String.fromCharCode(...Array.from(chunk));
+    }
+    return btoa(binaryString).replace(/[+/=]/g, '').substring(0, length);
   }
 }

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ShineBorder } from "@/components/ui/shine-border";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Eye, EyeOff, User, Lock, Users } from "lucide-react";
+import { Eye, EyeOff, User, Lock, Users, Check, X } from "lucide-react";
 import { useUser } from "./user-context";
 
 interface LoginProps {
@@ -22,12 +22,41 @@ export function Login({ onLogin }: LoginProps) {
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"login" | "create">("login");
 
-  // Auto-switch to create mode if no users exist
+  // Auto-switch to create mode if no users exist (only on initial load)
   useEffect(() => {
-    if (users.length === 0) {
+    if (users.length === 0 && mode === "login") {
       setMode("create");
     }
-  }, [users.length]);
+  }, [users.length]); // Remove mode from dependencies to prevent overriding user choice
+
+  // Password strength validation
+  const validatePasswordStrength = (password: string) => {
+    const minLength = 12;
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumbers = /\d/.test(password);
+    const hasSpecialChars = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+    const hasNoCommonWords = !/(password|123456|qwerty|admin|user|login)/i.test(password);
+
+    return {
+      isValid: password.length >= minLength &&
+               hasUpperCase &&
+               hasLowerCase &&
+               hasNumbers &&
+               hasSpecialChars &&
+               hasNoCommonWords,
+      checks: {
+        length: password.length >= minLength,
+        uppercase: hasUpperCase,
+        lowercase: hasLowerCase,
+        numbers: hasNumbers,
+        special: hasSpecialChars,
+        noCommon: hasNoCommonWords
+      }
+    };
+  };
+
+  const passwordValidation = validatePasswordStrength(password);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +67,13 @@ export function Login({ onLogin }: LoginProps) {
 
     try {
       if (mode === "create") {
+        // Validate password strength for new accounts
+        if (!passwordValidation.isValid) {
+          setError("Password does not meet security requirements. Please ensure it meets all criteria below.");
+          setIsLoading(false);
+          return;
+        }
+
         const success = await createUser(name.trim(), password.trim());
         if (success) {
           const loginSuccess = await login(name.trim(), password.trim());
@@ -51,11 +87,17 @@ export function Login({ onLogin }: LoginProps) {
           setMode("login");
         }
       } else {
+        // Allow login attempts even if no users exist, but show helpful error
         const success = await login(name.trim(), password.trim());
         if (success) {
           onLogin();
         } else {
-          setError("Invalid username or password");
+          if (users.length === 0) {
+            setError("No accounts found. Please create an account first.");
+            setMode("create");
+          } else {
+            setError("Invalid username or password");
+          }
         }
       }
     } catch (err) {
@@ -85,12 +127,16 @@ export function Login({ onLogin }: LoginProps) {
               <Users className="w-8 h-8 text-primary" />
             </div>
             <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-              {mode === "create" ? "Create Account" : "Welcome to LoRA"}
+              {mode === "create" ? "Create Account" : users.length > 0 ? "Welcome Back" : "Welcome to LoRA"}
             </CardTitle>
             <CardDescription className="text-muted-foreground">
               {mode === "create"
-                ? "Create your account to get started"
-                : "Enter your credentials to continue"
+                ? users.length > 0
+                  ? "Create a new account to get started"
+                  : "Create your first account to get started"
+                : users.length > 0
+                  ? "Enter your credentials to continue"
+                  : "No accounts found. Please create an account first."
               }
             </CardDescription>
           </CardHeader>
@@ -137,6 +183,38 @@ export function Login({ onLogin }: LoginProps) {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+
+                {mode === "create" && password && (
+                  <div className="space-y-2 mt-2">
+                    <div className="text-xs text-muted-foreground">Password requirements:</div>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <div className={`flex items-center gap-1 ${passwordValidation.checks.length ? 'text-green-600' : 'text-red-500'}`}>
+                        {passwordValidation.checks.length ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                        12+ characters
+                      </div>
+                      <div className={`flex items-center gap-1 ${passwordValidation.checks.uppercase ? 'text-green-600' : 'text-red-500'}`}>
+                        {passwordValidation.checks.uppercase ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                        Uppercase letter
+                      </div>
+                      <div className={`flex items-center gap-1 ${passwordValidation.checks.lowercase ? 'text-green-600' : 'text-red-500'}`}>
+                        {passwordValidation.checks.lowercase ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                        Lowercase letter
+                      </div>
+                      <div className={`flex items-center gap-1 ${passwordValidation.checks.numbers ? 'text-green-600' : 'text-red-500'}`}>
+                        {passwordValidation.checks.numbers ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                        Number
+                      </div>
+                      <div className={`flex items-center gap-1 ${passwordValidation.checks.special ? 'text-green-600' : 'text-red-500'}`}>
+                        {passwordValidation.checks.special ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                        Special character
+                      </div>
+                      <div className={`flex items-center gap-1 ${passwordValidation.checks.noCommon ? 'text-green-600' : 'text-red-500'}`}>
+                        {passwordValidation.checks.noCommon ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                        No common words
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {error && (
@@ -161,20 +239,18 @@ export function Login({ onLogin }: LoginProps) {
               </Button>
             </form>
 
-            {users.length > 0 && (
-              <div className="mt-4 text-center">
-                <Button
-                  variant="link"
-                  onClick={switchMode}
-                  className="text-sm text-muted-foreground hover:text-primary"
-                >
-                  {mode === "login"
-                    ? "Don't have an account? Create one"
-                    : "Already have an account? Sign in"
-                  }
-                </Button>
-              </div>
-            )}
+            <div className="mt-4 text-center">
+              <Button
+                variant="link"
+                onClick={switchMode}
+                className="text-sm text-muted-foreground hover:text-primary"
+              >
+                {mode === "login"
+                  ? "Don't have an account? Create one"
+                  : "Already have an account? Sign in"
+                }
+              </Button>
+            </div>
 
             <div className="mt-6 text-center">
               <p className="text-xs text-muted-foreground">

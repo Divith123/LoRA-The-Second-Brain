@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Ollama } from 'ollama';
 import fs from 'fs';
 import path from 'path';
+import { modelService } from '@/lib/model-service';
 
 const MODELS_DIR = path.join(process.cwd(), 'models');
 
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
   const type = searchParams.get('type');
   const query = searchParams.get('query') || 'gguf';
   const host = searchParams.get('host');
+  const provider = searchParams.get('provider');
 
   try {
     switch (type) {
@@ -31,6 +33,8 @@ export async function GET(request: NextRequest) {
         return await handleOllamaStatus(host);
       case 'local-files':
         return await handleLocalFiles();
+      case 'provider':
+        return await handleProviderModels(provider);
       default:
         return NextResponse.json({ error: 'Invalid type parameter' }, { status: 400 });
     }
@@ -206,6 +210,20 @@ async function handleLocalFiles() {
     return NextResponse.json(models);
   } catch (error) {
     console.error('Local files error:', error);
+    return NextResponse.json([], { status: 500 });
+  }
+}
+
+async function handleProviderModels(provider: string | null) {
+  if (!provider) {
+    return NextResponse.json({ error: 'Provider parameter is required' }, { status: 400 });
+  }
+
+  try {
+    const models = await modelService.getProviderModels(provider as any);
+    return NextResponse.json(models);
+  } catch (error) {
+    console.error(`Provider models error for ${provider}:`, error);
     return NextResponse.json([], { status: 500 });
   }
 }

@@ -36,8 +36,17 @@ export class EncryptedFileStorage {
     metadata: Omit<EncryptedFileMetadata, 'encryptedPath'>
   ): Promise<EncryptedFileMetadata> {
     try {
-      // Convert ArrayBuffer to base64 string for encryption
-      const base64Data = btoa(String.fromCharCode(...Array.from(new Uint8Array(fileBuffer))));
+      // Convert ArrayBuffer to base64 string in chunks to avoid stack overflow
+      const uint8Array = new Uint8Array(fileBuffer);
+      let binaryString = '';
+      const chunkSize = 8192; // Process in 8KB chunks
+
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.slice(i, i + chunkSize);
+        binaryString += String.fromCharCode(...Array.from(chunk));
+      }
+
+      const base64Data = btoa(binaryString);
 
       // Encrypt the file data
       const encryptedData = await EncryptionService.encrypt(base64Data, password);
@@ -81,11 +90,16 @@ export class EncryptedFileStorage {
       // Decrypt the data
       const decryptedBase64 = await EncryptionService.decrypt(encryptedData, password);
 
-      // Convert back to ArrayBuffer
+      // Convert back to ArrayBuffer in chunks to avoid stack overflow
       const binaryString = atob(decryptedBase64);
       const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      const chunkSize = 8192; // Process in 8KB chunks
+
+      for (let i = 0; i < binaryString.length; i += chunkSize) {
+        const chunk = binaryString.slice(i, i + chunkSize);
+        for (let j = 0; j < chunk.length; j++) {
+          bytes[i + j] = chunk.charCodeAt(j);
+        }
       }
 
       return bytes.buffer;

@@ -26,11 +26,15 @@ import {
   Info,
   X,
   LogOut,
-  Globe
+  Globe,
+  Trash2,
+  AlertTriangle
 } from "lucide-react";
 import { useExportConversationsForKnowledgeBase } from "@/lib/database-hooks";
 import { memoryPresets, LoRAConfig, defaultConfig } from "@/lib/config";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 type SettingsSection = 'account' | 'preferences' | 'environment' | 'knowledge' | 'about';
 
@@ -52,7 +56,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>('preferences');
   const exportConversationsMutation = useExportConversationsForKnowledgeBase();
-  const { currentUser, users, logout } = useUser();
+  const { currentUser, users, logout, deleteCurrentUser } = useUser();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Load saved config on mount
   useEffect(() => {
@@ -113,7 +120,25 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     return { label: "Ultra Low Power", color: "bg-gray-500" };
   };
 
-  const performance = getPerformanceRating(config);
+  const handleDeleteAccount = async () => {
+    if (!deletePassword.trim()) return;
+
+    setIsDeleting(true);
+    try {
+      const success = await deleteCurrentUser(deletePassword.trim());
+      if (success) {
+        toast.success("Account deleted successfully");
+        setShowDeleteDialog(false);
+        onClose();
+        // The logout is handled by deleteCurrentUser
+      } else {
+        toast.error("Invalid password. Account deletion failed.");
+      }
+    } catch (error) {
+      toast.error("Failed to delete account. Please try again.");
+    }
+    setIsDeleting(false);
+  };
 
   const renderSectionContent = () => {
     switch (activeSection) {
@@ -273,6 +298,28 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         Manage
                       </Button>
                     </div>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-destructive">Delete Account</p>
+                          <p className="text-xs text-muted-foreground">
+                            Permanently delete your account and all data
+                          </p>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setShowDeleteDialog(true)}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        This action cannot be undone. All your conversations, files, and projects will be permanently deleted.
+                      </p>
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -316,7 +363,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   Quick Presets
                 </CardTitle>
                 <CardDescription>
-                  Choose a preset optimized for your system's capabilities
+                  Choose a preset optimized for your system&apos;s capabilities
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -585,7 +632,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       <div className="text-sm">
                         <div className="font-medium text-blue-900 dark:text-blue-100">Custom Host Configuration</div>
                         <div className="text-blue-700 dark:text-blue-300 mt-1">
-                          If you're running Ollama on a different machine or port, update the host URL above.
+                          If you&apos;re running Ollama on a different machine or port, update the host URL above.
                           The format should be: http://hostname:port
                         </div>
                       </div>
@@ -712,7 +759,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </div>
                       <div>
                         <div className="font-medium">Performance</div>
-                        <div className="text-muted-foreground">{performance.label}</div>
+                        <div className="text-muted-foreground">{config.quantization}</div>
                       </div>
                     </div>
                   </div>
@@ -808,6 +855,63 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
       </div>
+
+      {/* Delete Account Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Delete Account
+            </DialogTitle>
+            <DialogDescription className="space-y-2">
+              <p>This action cannot be undone. This will permanently delete:</p>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>All your conversations and messages</li>
+                <li>All uploaded files and documents</li>
+                <li>All projects and project data</li>
+                <li>Your account and all associated data</li>
+              </ul>
+              <p className="font-medium text-destructive">
+                You will be immediately logged out and cannot recover this data.
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="delete-password" className="text-sm font-medium">
+                Confirm your password to delete your account
+              </Label>
+              <Input
+                id="delete-password"
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Enter your password"
+                className="w-full"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeleteDialog(false);
+                  setDeletePassword("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteAccount}
+                disabled={!deletePassword.trim() || isDeleting}
+              >
+                {isDeleting ? "Deleting..." : "Delete Account"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

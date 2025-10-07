@@ -16,11 +16,15 @@ import { SeeAllProjectsDialog } from "@/components/dialogs/see-all-projects-dial
 import { DatabaseService } from "@/lib/database";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { SystemCheck } from "@/components/system-check";
+
+import { ProviderType } from "@/lib/model-types";
 
 // Create a context for model state
 const ModelContext = createContext<{
   currentModel: string;
-  onModelChange: (model: string) => void;
+  currentProvider?: ProviderType;
+  onModelChange: (model: string, provider?: ProviderType) => void;
 }>({
   currentModel: '',
   onModelChange: () => {},
@@ -45,6 +49,14 @@ function AppContentInner({ children }: AppContentProps) {
       return stored || '';
     }
     return '';
+  });
+  const [currentProvider, setCurrentProvider] = useState<ProviderType | undefined>(() => {
+    // Initialize from localStorage if available
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('selectedProvider');
+      return stored as ProviderType || undefined;
+    }
+    return undefined;
   });
 
   // Dialog states
@@ -104,11 +116,17 @@ function AppContentInner({ children }: AppContentProps) {
     setProjectsDialogOpen(true);
   };
 
-  const handleModelChange = (model: string) => {
+  const handleModelChange = (model: string, provider?: ProviderType) => {
     setCurrentModel(model);
+    setCurrentProvider(provider);
     // Persist to localStorage
     if (typeof window !== 'undefined') {
       localStorage.setItem('selectedModel', model);
+      if (provider) {
+        localStorage.setItem('selectedProvider', provider);
+      } else {
+        localStorage.removeItem('selectedProvider');
+      }
     }
   };
 
@@ -129,7 +147,7 @@ function AppContentInner({ children }: AppContentProps) {
   }
 
   return (
-    <ModelContext.Provider value={{ currentModel, onModelChange: handleModelChange }}>
+    <ModelContext.Provider value={{ currentModel, currentProvider, onModelChange: handleModelChange }}>
       <SidebarProvider defaultOpen={sidebarOpen}>
         <AppSidebar
           onNewChat={handleNewChat}
@@ -144,6 +162,7 @@ function AppContentInner({ children }: AppContentProps) {
         <SidebarInset>
           <Nav />
           <Toaster position={"top-center"} richColors />
+          <SystemCheck />
           {children}
           <Analytics />
         </SidebarInset>
