@@ -56,6 +56,7 @@ export default function Chat() {
   const messageEndRef = useRef<HTMLDivElement>(null);
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isPlayingTTS, setIsPlayingTTS] = useState(false);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
@@ -576,10 +577,18 @@ export default function Chat() {
     };
     const newMessages: CoreMessage[] = [...messages, userMessage];
 
+    // Check if this is an image generation request
+    const isImageRequest = /generate.*image|create.*image|draw.*image|make.*image|produce.*image|generate.*picture|create.*picture|draw.*picture|make.*picture|produce.*picture/i.test(input);
+
     setMessages(newMessages);
     setInput("");
 
     try {
+      // Set image generation state before showing typing bubble
+      if (isImageRequest) {
+        setIsGeneratingImage(true);
+      }
+      
       // show typing bubble
       const messagesWithAssistant = [
         ...newMessages,
@@ -627,6 +636,7 @@ export default function Chat() {
       }
 
       setIsStreaming(false);
+      setIsGeneratingImage(false);
       setStreamingContent("");
 
       // finalize assistant message
@@ -649,6 +659,7 @@ export default function Chat() {
     } catch (error) {
       console.error("Error in conversation:", error);
       setMessages(newMessages); // drop empty assistant on error
+      setIsGeneratingImage(false); // Reset image generation state on error
       toast.error((error as Error).message || "Failed to get AI response");
     }
   };
@@ -806,6 +817,14 @@ export default function Chat() {
                           )}
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Show "Generating image..." when image is being generated */}
+                  {isGeneratingImage && i === messages.length - 1 && m.role === "assistant" && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                      <span className="italic">Generating image...</span>
                     </div>
                   )}
 

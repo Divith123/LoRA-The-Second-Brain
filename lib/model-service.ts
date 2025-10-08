@@ -342,15 +342,6 @@ class ModelService {
         contextLength: 131072,
         pricing: { input: 0.59, output: 0.79 },
         capabilities: ['text']
-      },
-      // Google Gemini models via OpenRouter
-      {
-        id: 'google/gemini-2.5-flash-image',
-        name: 'Gemini 2.5 Flash Image (Nano Banana)',
-        provider: 'openrouter',
-        contextLength: 4000,
-        pricing: { input: 0.00, output: 0.00 }, // Pricing may vary
-        capabilities: ['text', 'image-generation']
       }
     ];
   }
