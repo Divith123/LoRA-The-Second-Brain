@@ -44,8 +44,8 @@ export function useCreateUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ name, password, securityQuestion, securityAnswer }: { name: string; password: string; securityQuestion: string; securityAnswer: string }) =>
-      DatabaseService.createUser(name, password, securityQuestion, securityAnswer),
+    mutationFn: ({ name, email, password, securityQuestion, securityAnswer }: { name: string; email: string; password: string; securityQuestion: string; securityAnswer: string }) =>
+      DatabaseService.createUser(name, email, password, securityQuestion, securityAnswer),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.users });
     },

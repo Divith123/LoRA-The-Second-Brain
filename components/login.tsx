@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ShineBorder } from "@/components/ui/shine-border";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Eye, EyeOff, User, Lock, Users, Check, X, HelpCircle } from "lucide-react";
+import { Eye, EyeOff, User, Lock, Users, Check, X, HelpCircle, Mail } from "lucide-react";
 import { useUser } from "./user-context";
 import { ForgotPasswordModal } from "./forgot-password-modal";
 
@@ -17,6 +17,7 @@ interface LoginProps {
 export function Login({ onLogin }: LoginProps) {
   const { users, login, createUser } = useUser();
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [securityQuestion, setSecurityQuestion] = useState("");
   const [securityAnswer, setSecurityAnswer] = useState("");
@@ -78,9 +79,10 @@ export function Login({ onLogin }: LoginProps) {
           return;
         }
 
-        const success = await createUser(name.trim(), password.trim(), securityQuestion.trim(), securityAnswer.trim());
+        const userName = name.trim() || email.split('@')[0];
+        const success = await createUser(userName, email.trim(), password.trim(), securityQuestion.trim(), securityAnswer.trim());
         if (success) {
-          const loginSuccess = await login(name.trim(), password.trim());
+          const loginSuccess = await login(email.trim(), password.trim());
           if (loginSuccess) {
             onLogin();
           } else {
@@ -92,7 +94,7 @@ export function Login({ onLogin }: LoginProps) {
         }
       } else {
         // Allow login attempts even if no users exist, but show helpful error
-        const success = await login(name.trim(), password.trim());
+        const success = await login(email.trim(), password.trim());
         if (success) {
           onLogin();
         } else {
@@ -146,18 +148,38 @@ export function Login({ onLogin }: LoginProps) {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {mode === "create" && (
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-sm font-medium">
+                    Full Name
+                  </Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="name"
+                      type="text"
+                      placeholder="Enter your full name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="pl-10 h-12 bg-background/50 border-muted focus:border-primary/50 transition-colors"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
-                <Label htmlFor="name" className="text-sm font-medium">
-                  Full Name
+                <Label htmlFor="email" className="text-sm font-medium">
+                  {mode === "create" ? "Email" : "Email"}
                 </Label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    id="name"
-                    type="text"
-                    placeholder="Enter your full name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    id="email"
+                    type="email"
+                    placeholder={mode === "create" ? "Enter your email" : "Enter your email"}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="pl-10 h-12 bg-background/50 border-muted focus:border-primary/50 transition-colors"
                     required
                   />

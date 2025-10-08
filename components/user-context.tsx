@@ -7,6 +7,7 @@ import { DatabaseService } from "@/lib/database";
 interface User {
   id: string;
   name: string;
+  email: string;
   password: string;
   createdAt: string;
 }
@@ -14,9 +15,9 @@ interface User {
 interface UserContextType {
   users: User[];
   currentUser: User | null;
-  login: (name: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  createUser: (name: string, password: string, securityQuestion: string, securityAnswer: string) => Promise<boolean>;
+  createUser: (name: string, email: string, password: string, securityQuestion: string, securityAnswer: string) => Promise<boolean>;
   switchUser: (userId: string, password: string) => Promise<boolean>;
   deleteCurrentUser: (password: string) => Promise<boolean>;
   resetPassword: (name: string, securityAnswer: string, newPassword: string) => Promise<boolean>;
@@ -80,9 +81,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }, [sessionExpiry]);
 
-  const createUser = async (name: string, password: string, securityQuestion: string, securityAnswer: string): Promise<boolean> => {
+  const createUser = async (name: string, email: string, password: string, securityQuestion: string, securityAnswer: string): Promise<boolean> => {
     try {
-      const newUser = await createUserMutation.mutateAsync({ name, password, securityQuestion, securityAnswer });
+      const newUser = await createUserMutation.mutateAsync({ name, email, password, securityQuestion, securityAnswer });
       return !!newUser;
     } catch (error) {
       console.error("Error creating user:", error);
@@ -90,9 +91,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const login = async (name: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      const user = await DatabaseService.verifyUserPasswordByName(name, password);
+      const user = await DatabaseService.verifyUserPasswordByEmail(email, password);
       if (!user) {
         return false; // Invalid credentials
       }

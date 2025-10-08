@@ -86,7 +86,7 @@ export default function ProfilePage() {
                     <label className="text-sm font-medium text-muted-foreground">
                       Email
                     </label>
-                    <p className="text-sm font-medium">user@lora.ai</p>
+                    <p className="text-sm font-medium">{currentUser.email}</p>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-muted-foreground">
