@@ -138,15 +138,10 @@ export class EncryptionService {
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
     const hash = await this.crypto.subtle.digest('SHA-256', data);
-    
-    // Convert to base64 in chunks to avoid stack overflow
+
+    // Convert hash to base64
     const hashArray = new Uint8Array(hash);
-    let binaryString = '';
-    const chunkSize = 8192; // Process in 8KB chunks
-    for (let i = 0; i < hashArray.length; i += chunkSize) {
-      const chunk = hashArray.slice(i, i + chunkSize);
-      binaryString += String.fromCharCode(...Array.from(chunk));
-    }
+    const binaryString = String.fromCharCode(...hashArray);
     return btoa(binaryString);
   }
 
