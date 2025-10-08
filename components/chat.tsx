@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation";
 import { useConversation } from "./conversation-context";
 import { useModel } from "./app-content";
 import { Pin, MoreVertical, Volume2, Clock, Search, BookOpen } from "lucide-react";
+import { jsPDF } from "jspdf";
 import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { ProviderType } from "@/lib/model-types";
@@ -483,6 +484,106 @@ export default function Chat() {
     }
   }, [isPlayingTTS, currentAudioRef]);
 
+  const handleCopy = useCallback(async (text?: string) => {
+    if (!text) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      toast.success('Copied to clipboard');
+    } catch (e) {
+      console.error('Copy failed', e);
+      toast.error('Failed to copy');
+    }
+  }, []);
+
+  const handleExportPdf = useCallback((assistantText?: string, userText?: string, filename: string = 'deep-research.pdf') => {
+    if (!assistantText) return;
+    try {
+      const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+      const margin = 40;
+      const pageWidth = doc.internal.pageSize.getWidth() - margin * 2;
+      const lineHeight = 16;
+
+      // Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('LoRA - Deep Research Chat Export', margin, 60);
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const modelText = `Model: ${currentModel || 'Unknown'}`;
+      const generatedText = `Generated: ${new Date().toLocaleString()}`;
+      doc.text(modelText, margin, 80);
+      doc.text(generatedText, margin, 96);
+
+      // Divider
+      doc.setDrawColor(200);
+      doc.setLineWidth(0.5);
+      doc.line(margin, 110, margin + pageWidth, 110);
+
+      let cursorY = 130;
+
+      // User section
+      if (userText) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text('You:', margin, cursorY);
+        cursorY += 18;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(11);
+        const userLines = doc.splitTextToSize(String(userText), pageWidth);
+        doc.text(userLines, margin, cursorY);
+        cursorY += userLines.length * lineHeight + 12;
+
+        // subtle divider after user
+        doc.setDrawColor(230);
+        doc.setLineWidth(0.5);
+        doc.line(margin, cursorY, margin + pageWidth, cursorY);
+        cursorY += 16;
+      }
+
+      // Assistant section
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text('LoRA:', margin, cursorY);
+      cursorY += 18;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      const assistantLines = doc.splitTextToSize(String(assistantText), pageWidth);
+
+      // If content exceeds page, handle simple pagination
+      let linesPerPage = Math.floor((doc.internal.pageSize.getHeight() - cursorY - margin) / lineHeight);
+      let start = 0;
+      while (start < assistantLines.length) {
+        const chunk = assistantLines.slice(start, start + linesPerPage);
+        doc.text(chunk, margin, cursorY);
+        start += linesPerPage;
+        if (start < assistantLines.length) {
+          doc.addPage();
+          cursorY = margin;
+          linesPerPage = Math.floor((doc.internal.pageSize.getHeight() - margin * 2) / lineHeight);
+        }
+      }
+
+      doc.save(filename);
+      toast.success('PDF downloaded');
+    } catch (e) {
+      console.error('PDF export failed', e);
+      toast.error('Failed to export PDF');
+    }
+  }, [currentModel]);
+
   const handleSubmit = async ({
     input,
     model,
@@ -829,6 +930,39 @@ export default function Chat() {
                     >
                       <Volume2 className={cn("h-3 w-3", isPlayingTTS && "text-blue-500 animate-pulse")} />
                     </Button>
+                  )}
+                  {m.role === "assistant" && !isStreaming && (
+                    <div className="inline-flex items-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCopy(m.content as string)}
+                        className="h-6 w-6 p-0 ml-2 opacity-60 hover:opacity-100"
+                        title="Copy assistant text"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      </Button>
+
+                      {/* PDF export only when previous message (user) was deep-research */}
+                      {(() => {
+                        try {
+                          const prev = messages[i - 1] as ExtendedMessage | undefined;
+                          return prev && prev.role === 'user' && prev.mode === 'deep-research';
+                        } catch (e) {
+                          return false;
+                        }
+                      })() && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleExportPdf(m.content as string, (messages[i - 1] as ExtendedMessage)?.content as string)}
+                          className="h-6 w-6 p-0 ml-1 opacity-60 hover:opacity-100"
+                          title="Export this deep research response as PDF"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
