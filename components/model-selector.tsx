@@ -250,7 +250,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                 className="flex-1 min-w-[100px]"
               >
                 <Key size={14} className="mr-1" />
-                API ({openaiModels.slice(0, 4).length + geminiModels.slice(0, 3).length + groqModels.length + openrouterModels.length})
+                API ({openaiModels.slice(0, 4).length + geminiModels.length + groqModels.length + openrouterModels.length})
               </Button>
             </div>
 
@@ -750,7 +750,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {geminiModels.slice(0, 3).map((model) => {
+                        {geminiModels.map((model) => {
                           const isSelected = model.id === currentModel;
 
                           return (

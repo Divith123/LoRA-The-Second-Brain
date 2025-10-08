@@ -143,19 +143,13 @@ export async function continueConversation(
         }
       }
       if (picked.length) {
-        fileContext = `Use the following uploaded files if relevant:\n\n${picked.join('\n\n')}`;
+        fileContext = `UPLOADED FILES - YOU MUST USE THIS CONTENT TO ANSWER QUESTIONS:\n\n${picked.join('\n\n')}`;
         console.log('📚 File context built, total length:', fileContext.length, 'characters');
       } else {
         console.log('🚫 No file content extracted from any files');
-        if (opts.fileIds && opts.fileIds.length > 0) {
-          fileContext = `ERROR: Files were attached but no content could be extracted. The files may be corrupted, in unsupported formats, or contain no readable text.`;
-        }
       }
     } catch (e) {
       console.error('💥 Failed to build server-side file context', e);
-      if (opts.fileIds && opts.fileIds.length > 0) {
-        fileContext = `ERROR: Failed to process attached files due to a system error: ${e instanceof Error ? e.message : String(e)}`;
-      }
     }
   } else {
     console.log('📭 No file IDs provided');
@@ -224,14 +218,18 @@ export async function continueConversation(
           role: "system",
           content:
             "You are LoRA, the Second Brain - a personal AI companion that remembers and connects the user's thoughts across conversations. " +
-            "\n\nCRITICAL INSTRUCTION: If the user has uploaded files, you MUST analyze and answer questions using ONLY the content from those uploaded files. " +
-            "Do NOT make up information, hallucinate content, or provide generic responses. " +
-            "If files show extraction errors or no text content, clearly state what you found. " +
-            "For expense tracking, budget analysis, or financial questions, use the actual numbers and data from the uploaded files.\n\n" +
             (modePrompt ? `\n\n${modePrompt}` : '') +
             (modeInstructions ? `\n\n${modeInstructions}` : '') +
-            "\n\nIMPORTANT: The following content is from uploaded files and previous conversations. " +
-            "Use this information to provide accurate, specific answers:\n\n" +
+            "\n\nIMPORTANT: If files are attached to this message, you MUST use the provided file content in your response. " +
+            "Do NOT say you cannot access files or that you don't have access to the content. " +
+            "The file content is provided below - read it and answer questions based on it. " +
+            "If a file shows '(No text content could be extracted)', inform the user that you cannot read that type of file. " +
+            "If a file shows an error message, explain that you encountered an issue reading the file.\n\n" +
+            "When answering questions about uploaded files, quote relevant sections and provide specific details from the content.\n\n" +
+            "Use the following context from previous conversations, uploaded files, and retrieval index if relevant. " +
+            "Reference past conversations when appropriate to show continuity and memory. " +
+            "If asked about previous discussions or thoughts, draw from the conversation history provided. " +
+            "If the answer is not contained in the context, say so and answer from general knowledge.\n\n" +
             combinedContextText,
         },
         ...messages,
@@ -281,6 +279,7 @@ export async function continueConversation(
     try {
       let acc = "";
 
+      // Handle Ollama streaming response
       if (provider === 'ollama') {
         // Handle Ollama streaming response
         for await (const chunk of response) {
@@ -290,7 +289,7 @@ export async function continueConversation(
           stream.update(acc);
         }
       } else if (provider === 'gemini') {
-        // Handle Gemini streaming response
+        // Handle Gemini streaming response (supports both text and images)
         const reader = response.body?.getReader();
         if (!reader) {
           throw new Error('No response body reader available');
@@ -314,11 +313,17 @@ export async function continueConversation(
 
               try {
                 const parsed = JSON.parse(data);
-                // Gemini format: candidates[0].content.parts[0].text
-                const content = parsed.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                if (content) {
-                  acc += content;
-                  stream.update(acc);
+                const parts = parsed.candidates?.[0]?.content?.parts;
+
+                if (parts) {
+                  for (const part of parts) {
+                    // Handle text content (now includes image URLs)
+                    if (part.text) {
+                      console.log('📥 Gemini part.text:', part.text.substring(0, 200));
+                      acc += part.text;
+                      stream.update(acc);
+                    }
+                  }
                 }
               } catch (e) {
                 // Skip invalid JSON
@@ -365,6 +370,13 @@ export async function continueConversation(
               }
             }
           }
+        }
+
+        // Check for image data in the accumulated text (for OpenRouter image generation)
+        const imageMatch = acc.match(/data:image\/[^;]+;base64,([^"'\s]+)/);
+        if (imageMatch) {
+          // If we found image data in the text, keep it as is (it will be displayed as markdown)
+          console.log('Found image data in OpenAI-compatible response');
         }
       }
 

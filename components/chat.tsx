@@ -8,6 +8,14 @@ import { type CoreMessage } from "ai";
 type ExtendedMessage = CoreMessage & {
   mode?: "think-longer" | "deep-research" | "web-search" | "study";
   files?: { id: string; name: string; size?: number }[];
+  knowledgeSources?: {
+    used: boolean;
+    sources: Array<{
+      title: string;
+      date: string;
+      content: string;
+    }>;
+  };
 };
 import ChatInput from "./chat-input";
 import { readStreamableValue } from "ai/rsc";
@@ -25,10 +33,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useConversation } from "./conversation-context";
 import { useModel } from "./app-content";
-import { Pin, MoreVertical, Volume2, Clock, Search, BookOpen } from "lucide-react";
+import { Pin, MoreVertical, Volume2, Clock, Search, BookOpen, ChevronDown } from "lucide-react";
 import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { ProviderType } from "@/lib/model-types";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import FilePreviewModal from "./file-preview-modal";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +49,22 @@ const prettyBytes = (n: number) => {
   const u = ["B","KB","MB","GB"]; let i=0; let v=n;
   while (v>=1024 && i<u.length-1){ v/=1024; i++; }
   return `${v.toFixed(i?1:0)} ${u[i]}`;
+};
+
+const parseAssistantContent = (content: string, isStreaming: boolean = false) => {
+  if (content.startsWith('<think>')) {
+    const endIndex = content.indexOf('</think>');
+    if (endIndex !== -1) {
+      const think = content.substring(7, endIndex).trim();
+      const response = content.substring(endIndex + 8).trim();
+      return { think, response };
+    } else if (isStreaming) {
+      // During streaming, if we haven't seen </think> yet, show everything after <think> as thinking
+      const think = content.substring(7).trim();
+      return { think, response: '' };
+    }
+  }
+  return { think: null, response: content };
 };
 
 export default function Chat() {
@@ -56,10 +81,56 @@ export default function Chat() {
   const messageEndRef = useRef<HTMLDivElement>(null);
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isPlayingTTS, setIsPlayingTTS] = useState(false);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<"think-longer" | "deep-research" | "web-search" | "study" | null>(null);
+  const [thinkingStates, setThinkingStates] = useState<Record<string, boolean>>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('thinking-expanded');
+      const defaultExpanded = cached !== null ? JSON.parse(cached) : true;
+      return {};
+    }
+    return {};
+  });
+
+  const getThinkingState = (messageId: string) => {
+    if (thinkingStates[messageId] !== undefined) {
+      return thinkingStates[messageId];
+    }
+    // Initialize from cache
+    const cached = localStorage.getItem('thinking-expanded');
+    return cached !== null ? JSON.parse(cached) : true;
+  };
+
+  const setThinkingState = (messageId: string, expanded: boolean) => {
+    setThinkingStates(prev => ({ ...prev, [messageId]: expanded }));
+    localStorage.setItem('thinking-expanded', JSON.stringify(expanded));
+  };
+
+  const [knowledgeStates, setKnowledgeStates] = useState<Record<string, boolean>>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('knowledge-expanded');
+      const defaultExpanded = cached !== null ? JSON.parse(cached) : true;
+      return {};
+    }
+    return {};
+  });
+
+  const getKnowledgeState = (messageId: string) => {
+    if (knowledgeStates[messageId] !== undefined) {
+      return knowledgeStates[messageId];
+    }
+    // Initialize from cache
+    const cached = localStorage.getItem('knowledge-expanded');
+    return cached !== null ? JSON.parse(cached) : true;
+  };
+
+  const setKnowledgeState = (messageId: string, expanded: boolean) => {
+    setKnowledgeStates(prev => ({ ...prev, [messageId]: expanded }));
+    localStorage.setItem('knowledge-expanded', JSON.stringify(expanded));
+  };
 
   // Client-side function to retrieve relevant conversation history
   const retrieveRelevantConversationHistory = useCallback(async (
@@ -68,11 +139,18 @@ export default function Chat() {
     currentConversationId?: string,
     password?: string,
     maxResults: number = 5
-  ): Promise<string> => {
+  ): Promise<{
+    formattedText: string;
+    sources: Array<{
+      title: string;
+      date: string;
+      content: string;
+    }>;
+  }> => {
     // Strict check for browser environment
     if (typeof window === 'undefined' || !window.indexedDB) {
       console.warn('retrieveRelevantConversationHistory called in server environment - skipping');
-      return '';
+      return { formattedText: '', sources: [] };
     }
 
     try {
@@ -83,6 +161,11 @@ export default function Chat() {
       const otherConversations = conversations.filter(conv => conv.id !== currentConversationId);
 
       const relevantSnippets: string[] = [];
+      const sources: Array<{
+        title: string;
+        date: string;
+        content: string;
+      }> = [];
 
       for (const conversation of otherConversations.slice(0, 20)) { // Limit to recent 20 conversations for performance
         try {
@@ -111,43 +194,81 @@ export default function Chat() {
           const queryLower = currentQuery.toLowerCase();
 
           // Simple relevance check - look for keyword matches
-          const queryWords = queryLower.split(/\s+/).filter(word => word.length > 2);
-          const titleWords = titleLower.split(/\s+/);
-
+          const queryWords = queryLower.split(/\s+/).filter(word => word.length > 1); // Allow 2+ character words
+          const relevantWords = queryWords.filter(word => !['who', 'what', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'].includes(word.toLowerCase()));
+          
           let relevanceScore = 0;
 
-          // Title relevance
-          for (const queryWord of queryWords) {
-            if (titleWords.some(titleWord => titleWord.includes(queryWord) || queryWord.includes(titleWord))) {
+          // Title relevance - check for any relevant word matches
+          for (const queryWord of relevantWords) {
+            if (titleLower.includes(queryWord)) {
               relevanceScore += 10; // High score for title matches
             }
           }
 
-          // Content relevance - check recent messages
-          const recentMessages = conversationData.messages.slice(-6); // Last 6 messages
+          // If title has good matches, boost the score
+          if (relevanceScore >= 5) {
+            relevanceScore += 5;
+          }
+
+          // Content relevance - check recent messages for any relevant words
+          const recentMessages = conversationData.messages
+            .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
+            .slice(-8); // Check last 8 messages for better context
+          
           for (const message of recentMessages) {
-            if (message.role === 'user' || message.role === 'assistant') {
+            const content = String(message.content || '').toLowerCase();
+            for (const queryWord of relevantWords) {
+              if (content.includes(queryWord)) {
+                relevanceScore += 3; // Higher score for content matches
+                break; // One match per message is enough
+              }
+            }
+          }
+
+          // Also check for exact phrase matches
+          if (queryLower.length > 3) {
+            if (titleLower.includes(queryLower)) {
+              relevanceScore += 15;
+            }
+            for (const message of recentMessages) {
               const content = String(message.content || '').toLowerCase();
-              for (const queryWord of queryWords) {
-                if (content.includes(queryWord)) {
-                  relevanceScore += 2; // Lower score for content matches
-                }
+              if (content.includes(queryLower)) {
+                relevanceScore += 10;
+                break;
               }
             }
           }
 
           // If relevant enough, extract key information
-          if (relevanceScore >= 5) {
+          if (relevanceScore >= 1) { // Even more inclusive - any relevance // Lowered threshold from 5 to 2
             const keyMessages = conversationData.messages
               .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
-              .slice(-4) // Last 4 messages
-              .map((msg: any) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${String(msg.content || '').slice(0, 200)}`)
+              .slice(-4) // Last 4 messages for more context
+              .map((msg: any) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${String(msg.content || '').slice(0, 150)}`) // Shorter content
               .join('\n');
 
             if (keyMessages.trim()) {
+              // Extract just the relevant user messages for display
+              const userMessages = conversationData.messages
+                .filter((msg: any) => msg.role === 'user')
+                .slice(-2) // Last 2 user messages
+                .map((msg: any) => String(msg.content || '').trim())
+                .filter(content => content.length > 0);
+              
+              const summary = userMessages.length > 0 
+                ? userMessages.join('; ').substring(0, 200) + (userMessages.join('; ').length > 200 ? '...' : '')
+                : 'Previous conversation context';
+              
               relevantSnippets.push(
                 `From conversation "${conversationData.title}" (${new Date(conversationData.createdAt).toLocaleDateString()}):\n${keyMessages}`
               );
+              
+              sources.push({
+                title: conversationData.title,
+                date: new Date(conversationData.createdAt).toLocaleDateString(),
+                content: summary
+              });
             }
           }
 
@@ -162,19 +283,45 @@ export default function Chat() {
       }
 
       if (relevantSnippets.length > 0) {
-        return `## Previous Conversation Context\n\n${relevantSnippets.join('\n\n---\n\n')}\n\n`;
+        // Create a more concise summary for the AI
+        const conciseFacts: string[] = [];
+        
+        sources.forEach(source => {
+          // Extract key user statements
+          const lines = source.content.split('\n');
+          const userStatements = lines
+            .filter(line => line.startsWith('User:'))
+            .map(line => line.replace('User:', '').trim())
+            .filter(stmt => stmt.length > 3 && !stmt.includes('?') && stmt.split(' ').length < 20); // Short factual statements
+          
+          conciseFacts.push(...userStatements);
+        });
+        
+        const conciseHistory = conciseFacts.length > 0 
+          ? `Key facts from previous conversations: ${conciseFacts.slice(0, 5).join('. ')}.`
+          : '';
+          
+        return {
+          formattedText: conciseHistory,
+          sources
+        };
       }
 
-      return '';
+      return { formattedText: '', sources: [] };
     } catch (error) {
       console.error('Error retrieving conversation history:', error);
-      return '';
+      return { formattedText: '', sources: [] };
     }
   }, []);
 
   // Helper function to detect and format image URLs and base64 data in text
   const formatMessageWithImages = (content: string): string => {
     if (!content) return content;
+
+    // For Gemini responses, the content already has proper markdown images
+    if (content.includes('![Generated Image](')) {
+      return content;
+    }
 
     // Regular expression to match image URLs
     const imageUrlRegex = /(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff|avif)(\?[^\s]*)?)/gi;
@@ -189,7 +336,7 @@ export default function Chat() {
 
     // First, check if there are already markdown images
     const existingImages = content.match(markdownImageRegex);
-    if (existingImages) {
+    if (existingImages && existingImages.length > 0) {
       return content; // Don't process if already formatted
     }
 
@@ -217,7 +364,30 @@ export default function Chat() {
                 conversation.encryptedPath,
                 currentUser.password
               );
-              setMessages(decrypted.messages || []);
+              // Ensure all assistant messages have knowledgeSources property
+              const messagesWithKnowledge = (decrypted.messages || []).map((msg, index) => {
+                if (msg.role === 'assistant') {
+                  // Try to load knowledge sources from localStorage
+                  const knowledgeKey = `${conversationId}-knowledge-${index}`;
+                  const storedKnowledge = localStorage.getItem(knowledgeKey);
+                  let knowledgeSources = { used: false, sources: [] };
+                  
+                  if (storedKnowledge) {
+                    try {
+                      knowledgeSources = JSON.parse(storedKnowledge);
+                    } catch (e) {
+                      console.warn('Failed to parse stored knowledge sources:', e);
+                    }
+                  }
+                  
+                  return {
+                    ...msg,
+                    knowledgeSources
+                  };
+                }
+                return msg;
+              });
+              setMessages(messagesWithKnowledge);
               if (!currentModel) onModelChange(decrypted.model || "", decrypted.provider);
             } catch (error) {
               console.error("Failed to decrypt conversation:", error);
@@ -231,7 +401,30 @@ export default function Chat() {
             toast.warning("This conversation is encrypted. Please log in with your password to access it.");
           }
         } else {
-          setMessages(conversation.messages || []);
+          // Ensure all assistant messages have knowledgeSources property
+          const messagesWithKnowledge = (conversation.messages || []).map((msg, index) => {
+            if (msg.role === 'assistant') {
+              // Try to load knowledge sources from localStorage
+              const knowledgeKey = `${conversationId}-knowledge-${index}`;
+              const storedKnowledge = localStorage.getItem(knowledgeKey);
+              let knowledgeSources = { used: false, sources: [] };
+              
+              if (storedKnowledge) {
+                try {
+                  knowledgeSources = JSON.parse(storedKnowledge);
+                } catch (e) {
+                  console.warn('Failed to parse stored knowledge sources:', e);
+                }
+              }
+              
+              return {
+                ...msg,
+                knowledgeSources
+              };
+            }
+            return msg;
+          });
+          setMessages(messagesWithKnowledge);
           if (!currentModel) onModelChange(conversation.model || "", (conversation as any).provider);
         }
       }
@@ -571,10 +764,18 @@ export default function Chat() {
     };
     const newMessages: CoreMessage[] = [...messages, userMessage];
 
+    // Check if this is an image generation request
+    const isImageRequest = /generate.*image|create.*image|draw.*image|make.*image|produce.*image|generate.*picture|create.*picture|draw.*picture|make.*picture|produce.*picture/i.test(input);
+
     setMessages(newMessages);
     setInput("");
 
     try {
+      // Set image generation state before showing typing bubble
+      if (isImageRequest) {
+        setIsGeneratingImage(true);
+      }
+      
       // show typing bubble
       const messagesWithAssistant = [
         ...newMessages,
@@ -587,24 +788,47 @@ export default function Chat() {
         ? `User attached files:\n${files.map((f, i) => `${i + 1}. ${f.name} (${f.size ?? 'unknown'} bytes)`).join('\n')}\n\nPlease use all attached files together when answering.`
         : "";
 
-      const messagesToSend = fileListText ? [{ role: 'system' as const, content: fileListText }, ...newMessages] : newMessages;
-
       // Fetch relevant conversation history for knowledge base context
       let conversationHistory = '';
+      let knowledgeSources: Array<{
+        title: string;
+        date: string;
+        content: string;
+      }> = [];
+      
       if (currentUser?.id && typeof window !== 'undefined' && window.indexedDB) {
         try {
-          conversationHistory = await retrieveRelevantConversationHistory(
+          const historyResult = await retrieveRelevantConversationHistory(
             currentUser.id,
             input,
             currentConversationId || undefined,
             currentUser.password,
-            3
+            5  // Increased from 3 to 5 conversations
           );
+          conversationHistory = historyResult.formattedText;
+          knowledgeSources = historyResult.sources;
         } catch (error) {
           console.warn('Failed to retrieve conversation history:', error);
           // Continue without conversation history if it fails
         }
       }
+
+      const systemMessages = [];
+      
+      // Add file context if any
+      if (fileListText) {
+        systemMessages.push({ role: 'system' as const, content: fileListText });
+      }
+      
+      // Add conversation history if available
+      if (conversationHistory) {
+        systemMessages.push({ 
+          role: 'system' as const, 
+          content: `IMPORTANT: Use this context from previous conversations to provide personalized responses: ${conversationHistory}` 
+        });
+      }
+
+      const messagesToSend = [...systemMessages, ...newMessages];
 
       // pass fileIds, conversation history, and mode for knowledge base context
       const result = await continueConversation(messagesToSend, model, currentProvider, {
@@ -622,6 +846,7 @@ export default function Chat() {
       }
 
       setIsStreaming(false);
+      setIsGeneratingImage(false);
       setStreamingContent("");
 
       // finalize assistant message
@@ -630,7 +855,19 @@ export default function Chat() {
         updated[updated.length - 1] = {
           role: "assistant",
           content: finalAssistantContent,
+          knowledgeSources: {
+            used: knowledgeSources.length > 0,
+            sources: knowledgeSources
+          }
         };
+        
+        // Store knowledge sources in localStorage for persistence
+        const knowledgeKey = `${currentConversationId || 'new'}-knowledge-${updated.length - 1}`;
+        localStorage.setItem(knowledgeKey, JSON.stringify({
+          used: knowledgeSources.length > 0,
+          sources: knowledgeSources
+        }));
+        
         return updated;
       });
 
@@ -644,6 +881,7 @@ export default function Chat() {
     } catch (error) {
       console.error("Error in conversation:", error);
       setMessages(newMessages); // drop empty assistant on error
+      setIsGeneratingImage(false); // Reset image generation state on error
       toast.error((error as Error).message || "Failed to get AI response");
     }
   };
@@ -711,7 +949,7 @@ export default function Chat() {
   }
 
   return (
-    <div className="stretch mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 pt-24 md:px-0 relative">
+    <div className="stretch mx-auto flex min-h-screen w-full max-w-4xl flex-col px-4 pt-24 md:px-0 relative">
       {/* Conversation Header */}
       {currentConversationId && (
         <div className="flex items-center justify-between mb-4 pb-2 border-b">
@@ -739,8 +977,9 @@ export default function Chat() {
       <div className="flex-1 overflow-y-auto pb-4">
         {messages.map((m, i) => {
           const message = m as ExtendedMessage;
+          const messageId = `${i}-${m.content?.toString().length || 0}`;
           return (
-            <div key={`${i}-${m.content?.toString().length || 0}`} className={cn("mb-4 p-2", m.role === "user" ? "flex justify-end" : "flex justify-start")}>
+            <div key={messageId} className={cn("mb-4 p-2", m.role === "user" ? "flex justify-end" : "flex justify-start")}>
               <div className={cn("flex items-start max-w-[80%]", m.role === "user" ? "flex-row-reverse" : "flex-row")}>
                 <div
                   className={cn(
@@ -804,13 +1043,83 @@ export default function Chat() {
                     </div>
                   )}
 
-                  <MemoizedReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    className="text-sm">
-                    {isStreaming && i === messages.length - 1 && m.role === "assistant" 
-                      ? formatMessageWithImages(streamingContent) 
-                      : formatMessageWithImages(m.content as string)}
-                  </MemoizedReactMarkdown>
+                  {/* Show "Generating image..." when image is being generated */}
+                  {isGeneratingImage && i === messages.length - 1 && m.role === "assistant" && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                      <span className="italic">Generating image...</span>
+                    </div>
+                  )}
+
+                  {(() => {
+                    const content = isStreaming && i === messages.length - 1 && m.role === "assistant" 
+                      ? streamingContent 
+                      : m.content as string;
+                    const isCurrentlyStreaming = isStreaming && i === messages.length - 1 && m.role === "assistant";
+                    const { think, response } = parseAssistantContent(content, isCurrentlyStreaming);
+                    return (
+                      <>
+                        {think && !isCurrentlyStreaming && (
+                          <Collapsible 
+                            open={getThinkingState(messageId)} 
+                            onOpenChange={(expanded) => setThinkingState(messageId, expanded)} 
+                            className="mb-2"
+                          >
+                            <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                              <ChevronDown className={cn("h-3 w-3 transition-transform", getThinkingState(messageId) ? "rotate-180" : "")} />
+                              <span>Thinking</span>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-1 p-2 bg-muted/30 rounded text-xs text-muted-foreground whitespace-pre-wrap">
+                              {think}
+                            </CollapsibleContent>
+                          </Collapsible>
+                        )}
+                        {m.role === "assistant" && !isCurrentlyStreaming && (
+                          <Collapsible 
+                            open={getKnowledgeState(messageId)} 
+                            onOpenChange={(expanded) => setKnowledgeState(messageId, expanded)} 
+                            className="mb-2"
+                          >
+                            <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                              <ChevronDown className={cn("h-3 w-3 transition-transform", getKnowledgeState(messageId) ? "rotate-180" : "")} />
+                              <span>Knowledge{message.knowledgeSources?.sources?.length ? ` (${message.knowledgeSources.sources.length} sources)` : ""}</span>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-1 p-2 bg-muted/30 rounded text-xs text-muted-foreground">
+                              {message.knowledgeSources?.sources?.length ? (
+                                <div className="space-y-2">
+                                  {message.knowledgeSources.sources.map((source, idx) => (
+                                    <div key={idx} className="border-l-2 border-primary/30 pl-2">
+                                      <div className="font-medium text-primary">{source.title}</div>
+                                      <div className="text-xs text-muted-foreground mb-1">{source.date}</div>
+                                      <div className="whitespace-pre-wrap">{source.content}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-muted-foreground italic">
+                                  No relevant knowledge found from previous conversations.
+                                </div>
+                              )}
+                            </CollapsibleContent>
+                          </Collapsible>
+                        )}
+                        
+                        {/* Show "Thinking..." during streaming */}
+                        {isCurrentlyStreaming && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                            <span className="italic">Thinking...</span>
+                          </div>
+                        )}
+                        
+                        <MemoizedReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          className="text-sm">
+                          {formatMessageWithImages(response)}
+                        </MemoizedReactMarkdown>
+                      </>
+                    );
+                  })()}
                   {m.role === "assistant" && !isStreaming && (
                     <Button
                       variant="ghost"
@@ -838,14 +1147,16 @@ export default function Chat() {
         <div ref={messageEndRef} />
       </div>
 
-      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t">
-        <ChatInput
-          input={input}
-          setInput={setInput}
-          handleSubmit={handleSubmit}
-          model={currentModel}
-          handleModelChange={handleModelChange}
-        />
+      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t flex justify-center px-4">
+        <div className="w-full max-w-4xl">
+          <ChatInput
+            input={input}
+            setInput={setInput}
+            handleSubmit={handleSubmit}
+            model={currentModel}
+            handleModelChange={handleModelChange}
+          />
+        </div>
       </div>
       <FilePreviewModal fileId={previewFileId} onClose={() => setPreviewFileId(null)} />
     </div>

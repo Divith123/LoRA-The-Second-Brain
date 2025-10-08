@@ -193,7 +193,7 @@ export default function ChatInput({
     <form
       onSubmit={onSubmit}
       className="w-full bg-gradient-to-t from-background via-background/95 to-background/80 backdrop-blur-sm">
-      <div className="w-full max-w-2xl items-center px-6 py-4">
+      <div className="w-full max-w-4xl items-center py-4">
         <div className="relative flex w-full flex-col items-start gap-2">
           {/* Mode indicator and clear button */}
           {selectedMode && (

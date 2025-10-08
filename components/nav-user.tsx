@@ -106,7 +106,7 @@ export function NavUser() {
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">{currentUser.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">user@lora.ai</span>
+                  <span className="truncate text-xs text-muted-foreground">{currentUser.email}</span>
                 </div>
                 <ChevronsUpDown className="ml-auto size-4" />
               </SidebarMenuButton>
@@ -127,7 +127,7 @@ export function NavUser() {
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">{currentUser.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">user@lora.ai</span>
+                    <span className="truncate text-xs text-muted-foreground">{currentUser.email}</span>
                   </div>
                 </div>
               </DropdownMenuLabel>

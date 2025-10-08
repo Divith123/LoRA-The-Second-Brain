@@ -8,6 +8,7 @@ import { ProviderType } from './model-types';
 export interface User {
   id: string;
   name: string;
+  email: string;
   password: string;
   securityQuestion: string;
   securityAnswer: string;
@@ -52,9 +53,39 @@ export class LoRADatabase extends Dexie {
       projects: 'id, userId, name, category, createdAt, updatedAt'
     });
 
+    this.version(6).stores({
+      users: 'id, name, email, createdAt, securityQuestion',
+      conversations: 'id, userId, title, createdAt, updatedAt, pinned, provider',
+      files: 'id, userId, name, type, path, parentId, createdAt, updatedAt',
+      projects: 'id, userId, name, category, createdAt, updatedAt'
+    });
+
+    this.version(7).stores({
+      users: 'id, name, email, createdAt, securityQuestion',
+      conversations: 'id, userId, title, createdAt, updatedAt, pinned, provider',
+      files: 'id, userId, name, type, path, parentId, createdAt, updatedAt',
+      projects: 'id, userId, name, category, createdAt, updatedAt'
+    }).upgrade(async (tx) => {
+      // Migrate existing users to separate name and email
+      const users = await tx.table('users').toArray();
+      for (const user of users) {
+        if (user.name && user.name.includes('@')) {
+          // If name contains email, extract name and set email
+          const email = user.name;
+          const name = email.split('@')[0];
+          await tx.table('users').update(user.id, { name, email });
+        } else if (!user.email) {
+          // If no email field exists, set it to empty string
+          await tx.table('users').update(user.id, { email: '' });
+        }
+      }
+    });
+
     // Add debugging
-    this.open().then(() => {
+    this.open().then(async () => {
       console.log('LoRA Database opened successfully, version:', this.verno);
+      // Run migration to fix user data
+      await DatabaseService.migrateUserData();
     }).catch(error => {
       console.error('Failed to open LoRA Database:', error);
     });
@@ -157,6 +188,19 @@ export class DatabaseService {
     }
   }
 
+  static async verifyUserPasswordByEmail(email: string, password: string): Promise<User | null> {
+    try {
+      const user = await this.getDatabase().users.where('email').equalsIgnoreCase(email).first();
+      if (!user) return null;
+
+      const isValidPassword = await EncryptionService.verifyPassword(password, user.password);
+      return isValidPassword ? user : null;
+    } catch (error) {
+      console.error('Error verifying password by email:', error);
+      return null;
+    }
+  }
+
   static async deleteUserByPassword(userId: string, password: string): Promise<boolean> {
     try {
       // Verify password before allowing deletion
@@ -211,7 +255,7 @@ export class DatabaseService {
   }
 
   // User operations
-  static async createUser(name: string, password: string, securityQuestion: string, securityAnswer: string): Promise<User | null> {
+  static async createUser(name: string, email: string, password: string, securityQuestion: string, securityAnswer: string): Promise<User | null> {
     this.checkBrowserEnvironment();
     try {
       const existingUser = await this.getDatabase().users.where('name').equalsIgnoreCase(name).first();
@@ -231,6 +275,7 @@ export class DatabaseService {
       const user: User = {
         id: Date.now().toString(),
         name: name.trim(),
+        email: email.trim(),
         password: hashedPassword, // Store hashed password
         securityQuestion: securityQuestion.trim(),
         securityAnswer: hashedSecurityAnswer, // Store hashed security answer
@@ -252,6 +297,46 @@ export class DatabaseService {
     } catch (error) {
       console.error('Error getting users:', error);
       return [];
+    }
+  }
+
+  static async migrateUserData(): Promise<void> {
+    this.checkBrowserEnvironment();
+    try {
+      const users = await this.getDatabase().users.toArray();
+      let migratedCount = 0;
+
+      for (const user of users) {
+        let needsUpdate = false;
+        const updates: Partial<User> = {};
+
+        // If name contains email and email field is empty or doesn't match, migrate
+        if (user.name && user.name.includes('@') && (!user.email || user.email !== user.name)) {
+          const email = user.name;
+          const name = email.split('@')[0];
+          updates.name = name;
+          updates.email = email;
+          needsUpdate = true;
+          console.log(`Migrating user ${user.id}: name "${user.name}" -> name "${name}", email "${email}"`);
+        } else if (user.email === undefined) {
+          // Ensure email field exists (for users created before email field was added)
+          updates.email = '';
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          await this.getDatabase().users.update(user.id, updates);
+          migratedCount++;
+        }
+      }
+
+      if (migratedCount > 0) {
+        console.log(`Migrated ${migratedCount} user records to separate name and email fields`);
+      } else {
+        console.log('No user records needed migration');
+      }
+    } catch (error) {
+      console.error('Error migrating user data:', error);
     }
   }
 

@@ -207,7 +207,10 @@ const CustomImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
             props.className
           )}
           onLoad={() => setImageLoaded(true)}
-          onError={() => setImageError(true)}
+          onError={() => {
+            console.log('Image failed to load:', src);
+            setImageError(true);
+          }}
         />
         {imageLoaded && alt && (
           <p className="text-xs text-muted-foreground mt-2 text-center">{alt}</p>
