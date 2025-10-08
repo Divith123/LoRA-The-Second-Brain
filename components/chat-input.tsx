@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 import { ProviderType } from "@/lib/model-types";
 import Textarea from "react-textarea-autosize";
 import { AiOutlineEnter } from "react-icons/ai";
-import { Upload, Brain, Search, BookOpen, Clock, X } from "lucide-react";
+import { Upload, Brain, Search, BookOpen, Clock, X, Mic } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import FilePreviewModal from "./file-preview-modal";
 
@@ -13,7 +13,7 @@ type AIMode = "think-longer" | "deep-research" | "web-search" | "study";
 type ChatInputProps = {
   input: string;
   setInput: (input: string) => void;
-  handleSubmit: (payload: { input: string; model: string; fileIds?: string[]; files?: { id: string; name: string; size?: number }[] }) => Promise<void>;
+  handleSubmit: (payload: { input: string; model: string; fileIds?: string[]; files?: { id: string; name: string; size?: number }[]; audioFile?: File; mode?: AIMode }) => Promise<void>;
   model: string;
   handleModelChange: (model: string, provider?: ProviderType) => void;
 };
@@ -31,6 +31,7 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size?: number }>>([]);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
 
   const modes = useMemo(() => [
     { id: "think-longer" as AIMode, label: "Think Longer", icon: Clock, shortcut: "/think" },
@@ -90,6 +91,23 @@ export default function ChatInput({
     inputEl.click();
   };
 
+  const handleAudioUpload = () => {
+    const inputEl = document.createElement("input");
+    inputEl.type = "file";
+    inputEl.accept = "audio/*,.wav,.mp3,.m4a,.flac,.ogg"; // audio file types
+    inputEl.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        setAudioFile(file);
+      }
+    };
+    inputEl.click();
+  };
+
+  const removeAudioFile = () => {
+    setAudioFile(null);
+  };
+
   // helpers
   const prettyBytes = (n: number) => {
     if (!n && n !== 0) return "";
@@ -107,6 +125,9 @@ export default function ChatInput({
   // ...existing code...
 
   const getPlaceholder = () => {
+    if (isTranscriptionModel) {
+      return "Upload an audio file to transcribe...";
+    }
     if (selectedMode) {
       const mode = modes.find(m => m.id === selectedMode);
       return `Ask me anything in ${mode?.label} mode...`;
@@ -114,9 +135,18 @@ export default function ChatInput({
     return "Type / for modes, or ask me anything!";
   };
 
+  const isTranscriptionModel = model.includes('whisper');
+
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (input.trim().length === 0 || isSubmitting || !model) return;
+    if (isTranscriptionModel) {
+      if (!audioFile) {
+        alert("Please upload an audio file for transcription");
+        return;
+      }
+    } else if (input.trim().length === 0 || isSubmitting || !model) {
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -125,9 +155,12 @@ export default function ChatInput({
         model,
         fileIds: attachments.map(a => a.id),
         files: attachments.map(a => ({ id: a.id, name: a.name, size: a.size })),
+        audioFile: audioFile || undefined,
+        mode: selectedMode || undefined,
       });
       setSelectedMode(null);
       setShowModeSelector(false);
+      setAudioFile(null); // Clear audio file after submission
       // optionally: setAttachments([]);
     } finally {
       setIsSubmitting(false);
@@ -142,7 +175,11 @@ export default function ChatInput({
       !isSubmitting
     ) {
       e.preventDefault();
-      if (input.trim().length > 0 && model) {
+      if (isTranscriptionModel) {
+        if (audioFile && model) {
+          onSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
+        }
+      } else if (input.trim().length > 0 && model) {
         onSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
       }
     }
@@ -212,17 +249,32 @@ export default function ChatInput({
 
             {/* attachments moved below textarea to avoid overlapping the send button */}
 
-            {/* Upload button */}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleFileUpload}
-              className="absolute right-12 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-muted"
-              disabled={isSubmitting}
-            >
-              <Upload size={14} />
-            </Button>
+            {/* Upload buttons - show different buttons based on model type */}
+            {isTranscriptionModel ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleAudioUpload}
+                className="absolute right-12 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-muted"
+                disabled={isSubmitting}
+                title="Upload audio file"
+              >
+                <Mic size={14} />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleFileUpload}
+                className="absolute right-12 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-muted"
+                disabled={isSubmitting}
+                title="Upload files"
+              >
+                <Upload size={14} />
+              </Button>
+            )}
 
             {/* Send button */}
             <Button
@@ -230,7 +282,12 @@ export default function ChatInput({
               size="sm"
               variant="ghost"
               className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-muted"
-              disabled={input.length === 0 || !model || isSubmitting}>
+              disabled={
+                (!isTranscriptionModel && input.length === 0) ||
+                (isTranscriptionModel && !audioFile) ||
+                !model ||
+                isSubmitting
+              }>
               <AiOutlineEnter size={16} />
             </Button>
           </div>
@@ -263,6 +320,23 @@ export default function ChatInput({
                   </span>
                 </button>
               ))}
+            </div>
+          )}
+
+          {audioFile && (
+            <div className="mt-2 flex flex-wrap gap-2 w-full pl-10">
+              <div className="inline-flex items-center max-w-full rounded-full border border-border/60 bg-muted/40 px-2.5 py-1.5 text-xs">
+                <Mic className="mr-1.5 h-3.5 w-3.5 opacity-70" />
+                <span className="truncate max-w-[16rem]">{truncate(audioFile.name)}</span>
+                <span className="ml-2 tabular-nums text-muted-foreground">{prettyBytes(audioFile.size)}</span>
+                <span
+                  onClick={removeAudioFile}
+                  className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-foreground/10 cursor-pointer"
+                  aria-label={`Remove ${audioFile.name}`}
+                >
+                  ✕
+                </span>
+              </div>
             </div>
           )}
 

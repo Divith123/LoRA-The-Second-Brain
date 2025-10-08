@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ShineBorder } from "@/components/ui/shine-border";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Eye, EyeOff, User, Lock, Users, Check, X } from "lucide-react";
+import { Eye, EyeOff, User, Lock, Users, Check, X, HelpCircle } from "lucide-react";
 import { useUser } from "./user-context";
+import { ForgotPasswordModal } from "./forgot-password-modal";
 
 interface LoginProps {
   onLogin: () => void;
@@ -17,10 +18,13 @@ export function Login({ onLogin }: LoginProps) {
   const { users, login, createUser } = useUser();
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [securityQuestion, setSecurityQuestion] = useState("");
+  const [securityAnswer, setSecurityAnswer] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"login" | "create">("login");
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   // Auto-switch to create mode if no users exist (only on initial load)
   useEffect(() => {
@@ -74,7 +78,7 @@ export function Login({ onLogin }: LoginProps) {
           return;
         }
 
-        const success = await createUser(name.trim(), password.trim());
+        const success = await createUser(name.trim(), password.trim(), securityQuestion.trim(), securityAnswer.trim());
         if (success) {
           const loginSuccess = await login(name.trim(), password.trim());
           if (loginSuccess) {
@@ -217,6 +221,40 @@ export function Login({ onLogin }: LoginProps) {
                 )}
               </div>
 
+              {mode === "create" && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="securityQuestion" className="text-sm font-medium">
+                      Security Question
+                    </Label>
+                    <Input
+                      id="securityQuestion"
+                      type="text"
+                      placeholder="e.g., What was the name of your first pet?"
+                      value={securityQuestion}
+                      onChange={(e) => setSecurityQuestion(e.target.value)}
+                      className="h-12 bg-background/50 border-muted focus:border-primary/50 transition-colors"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="securityAnswer" className="text-sm font-medium">
+                      Security Answer
+                    </Label>
+                    <Input
+                      id="securityAnswer"
+                      type="text"
+                      placeholder="Your answer (case insensitive)"
+                      value={securityAnswer}
+                      onChange={(e) => setSecurityAnswer(e.target.value)}
+                      className="h-12 bg-background/50 border-muted focus:border-primary/50 transition-colors"
+                      required
+                    />
+                  </div>
+                </>
+              )}
+
               {error && (
                 <div className="text-sm text-destructive text-center bg-destructive/10 p-2 rounded-md">
                   {error}
@@ -226,7 +264,7 @@ export function Login({ onLogin }: LoginProps) {
               <Button
                 type="submit"
                 className="w-full h-12 text-base font-medium bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 transition-all duration-200 shadow-lg hover:shadow-xl"
-                disabled={isLoading || !name.trim() || !password.trim()}
+                disabled={isLoading || !name.trim() || !password.trim() || (mode === "create" && (!securityQuestion.trim() || !securityAnswer.trim()))}
               >
                 {isLoading ? (
                   <div className="flex items-center gap-2">
@@ -238,6 +276,18 @@ export function Login({ onLogin }: LoginProps) {
                 )}
               </Button>
             </form>
+
+            {mode === "login" && users.length > 0 && (
+              <div className="mt-4 text-center">
+                <Button
+                  variant="link"
+                  onClick={() => setShowForgotPassword(true)}
+                  className="text-sm text-muted-foreground hover:text-primary"
+                >
+                  Forgot your password?
+                </Button>
+              </div>
+            )}
 
             <div className="mt-4 text-center">
               <Button
@@ -260,6 +310,17 @@ export function Login({ onLogin }: LoginProps) {
           </CardContent>
         </Card>
       </div>
+
+      <ForgotPasswordModal
+        isOpen={showForgotPassword}
+        onClose={() => setShowForgotPassword(false)}
+        onSuccess={() => {
+          setShowForgotPassword(false);
+          setError("");
+          // Optionally switch to login mode
+          setMode("login");
+        }}
+      />
     </div>
   );
 }

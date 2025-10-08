@@ -13,10 +13,9 @@ import { ConversationProvider, useConversation } from "@/components/conversation
 import { SeeAllChatsDialog } from "@/components/dialogs/see-all-chats-dialog";
 import { SeeAllFilesDialog } from "@/components/dialogs/see-all-files-dialog";
 import { SeeAllProjectsDialog } from "@/components/dialogs/see-all-projects-dialog";
-import { DatabaseService } from "@/lib/database";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useOllamaStatus } from "@/lib/model-hooks";
 import { SystemCheck } from "@/components/system-check";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ProviderType } from "@/lib/model-types";
 
@@ -42,6 +41,7 @@ function AppContentInner({ children }: AppContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const { data: isOllamaRunning = false } = useOllamaStatus();
   const [currentModel, setCurrentModel] = useState(() => {
     // Initialize from localStorage if available
     if (typeof window !== 'undefined') {
@@ -117,6 +117,15 @@ function AppContentInner({ children }: AppContentProps) {
   };
 
   const handleModelChange = (model: string, provider?: ProviderType) => {
+    // Infer provider from model name if not provided
+    if (!provider) {
+      if (model.includes('/')) {
+        provider = 'openrouter'; // Default namespaced models to OpenRouter
+      } else {
+        provider = 'ollama'; // Default simple model names to Ollama
+      }
+    }
+
     setCurrentModel(model);
     setCurrentProvider(provider);
     // Persist to localStorage
@@ -129,6 +138,18 @@ function AppContentInner({ children }: AppContentProps) {
       }
     }
   };
+
+  // Automatically select OpenRouter model if Ollama is not running and no model is selected
+  useEffect(() => {
+    if (!isOllamaRunning && !currentModel && typeof window !== 'undefined') {
+      // Check if OpenRouter API key is configured
+      const openRouterKey = localStorage.getItem('openrouter_api_key') || process.env.OPENROUTER_API_KEY;
+      if (openRouterKey) {
+        // Automatically select the first OpenRouter model
+        handleModelChange('openai/gpt-4o', 'openrouter');
+      }
+    }
+  }, [isOllamaRunning, currentModel, handleModelChange]);
 
   // Show loading state while determining authentication
   if (isLoading) {

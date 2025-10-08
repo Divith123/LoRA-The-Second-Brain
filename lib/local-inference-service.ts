@@ -135,24 +135,46 @@ export const localInferenceService = {
     const { port } = await ensureModelServer(model);
     const url = `http://${HOST}:${port}/v1/chat/completions`;
 
-    const body = {
-      model, // ignored by llama-server, but harmless
-      messages,
-      stream: true,
-      temperature: params.temperature ?? 0.7,
-      top_p: params.topP ?? 0.9,
-      max_tokens: params.maxTokens ?? 512,
-      repeat_penalty: params.repetitionPenalty ?? 1.1,
-    };
-
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        temperature: params.temperature ?? 0.7,
+        top_p: params.topP ?? 0.9,
+        max_tokens: params.maxTokens ?? 512,
+        repeat_penalty: params.repetitionPenalty ?? 1.1,
+      }),
     });
 
-    for await (const chunk of streamOpenAIChat(res)) {
-      yield chunk;
+    if (!res.ok || !res.body) throw new Error(`LLM HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) !== -1) {
+        const chunk = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+        for (const line of chunk.split("\n")) {
+          const t = line.trim();
+          if (!t.startsWith("data:")) continue;
+          const payload = t.slice(5).trim();
+          if (payload === "[DONE]") return;
+          try {
+            const j = JSON.parse(payload);
+            const delta =
+              j.choices?.[0]?.delta?.content ??
+              j.choices?.[0]?.message?.content ??
+              j.choices?.[0]?.text ?? "";
+            if (delta) yield delta as string;
+          } catch {}
+        }
+      }
     }
   },
 };

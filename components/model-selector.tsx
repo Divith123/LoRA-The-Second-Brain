@@ -154,7 +154,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
           />
 
           {/* Modal Card */}
-          <div className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 w-full max-w-2xl mx-4 h-[600px] overflow-hidden">
+          <div className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Select Model</h3>
               <Button
@@ -250,7 +250,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                 className="flex-1 min-w-[100px]"
               >
                 <Key size={14} className="mr-1" />
-                API ({openaiModels.slice(0, 4).length + geminiModels.slice(0, 3).length + groqModels.slice(0, 4).length + openrouterModels.length})
+                API ({openaiModels.slice(0, 4).length + geminiModels.slice(0, 3).length + groqModels.length + openrouterModels.length})
               </Button>
             </div>
 
@@ -801,7 +801,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <Zap size={16} className="text-orange-600" />
-                      <h4 className="font-medium">Groq ({groqModels.slice(0, 4).length})</h4>
+                      <h4 className="font-medium">Groq ({groqModels.length})</h4>
                     </div>
                     {isLoadingGroq ? (
                       <div className="text-center py-4">
@@ -815,7 +815,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {groqModels.slice(0, 4).map((model) => {
+                        {groqModels.map((model) => {
                           const isSelected = model.id === currentModel;
 
                           return (
@@ -831,7 +831,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                                 <div className="flex-1 min-w-0">
                                   <div className="font-medium text-sm truncate">{model.name}</div>
                                   <div className="text-xs text-muted-foreground">
-                                    Context: {model.contextLength?.toLocaleString()}
+                                    {model.capabilities?.includes('transcription') ? 'Audio Transcription' : `Context: ${model.contextLength?.toLocaleString()}`}
                                   </div>
                                 </div>
                               </div>
@@ -879,7 +879,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                         <p className="text-xs text-muted-foreground">Configure your API key above.</p>
                       </div>
                     ) : (
-                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                      <div className="space-y-2">
                         {openrouterModels.map((model) => {
                           const isSelected = model.id === currentModel;
 

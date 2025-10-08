@@ -164,12 +164,65 @@ const CustomListItem = (props: React.LiHTMLAttributes<HTMLLIElement>) => {
   return <li {...props} className={cn("leading-relaxed", props.className)} />;
 };
 
+const CustomImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
+  src,
+  alt,
+  ...props
+}) => {
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  if (!src || imageError) {
+    return (
+      <div className="flex items-center justify-center p-4 bg-muted rounded-lg border border-dashed border-muted-foreground/30">
+        <div className="text-center">
+          <div className="text-2xl mb-2">🖼️</div>
+          <p className="text-sm text-muted-foreground">
+            {imageError ? "Failed to load image" : "Image"}
+          </p>
+          {alt && <p className="text-xs text-muted-foreground mt-1">{alt}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-4">
+      <div className="relative inline-block max-w-full">
+        {!imageLoaded && (
+          <div className="flex items-center justify-center p-8 bg-muted rounded-lg border">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+              <p className="text-sm text-muted-foreground">Loading image...</p>
+            </div>
+          </div>
+        )}
+        <img
+          src={src}
+          alt={alt}
+          {...props}
+          className={cn(
+            "max-w-full h-auto rounded-lg border shadow-sm",
+            !imageLoaded && "hidden",
+            props.className
+          )}
+          onLoad={() => setImageLoaded(true)}
+          onError={() => setImageError(true)}
+        />
+        {imageLoaded && alt && (
+          <p className="text-xs text-muted-foreground mt-2 text-center">{alt}</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const CustomBlockquote = (props: React.BlockquoteHTMLAttributes<HTMLQuoteElement>) => {
   return (
     <blockquote
       {...props}
       className={cn(
-        "border-l-4 border-muted-foreground/30 pl-4 py-2 my-4 bg-muted/30 rounded-r-md italic",
+        "border-l-4 border-primary pl-4 py-2 my-4 bg-muted/30 rounded-r-lg italic text-muted-foreground",
         props.className
       )}
     />
@@ -244,6 +297,7 @@ export const MemoizedReactMarkdown: FC<Options> = memo(
         strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
         em: ({ children }) => <em className="italic">{children}</em>,
         hr: () => <hr className="my-8 border-border" />,
+        img: CustomImage,
       }}
     />
   ),

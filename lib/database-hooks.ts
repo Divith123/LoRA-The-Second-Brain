@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DatabaseService, User, Conversation, FileItem, Project } from "@/lib/database";
+import { ProviderType } from "@/lib/model-types";
 
 // Query keys
 export const queryKeys = {
@@ -43,8 +44,8 @@ export function useCreateUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ name, password }: { name: string; password: string }) =>
-      DatabaseService.createUser(name, password),
+    mutationFn: ({ name, password, securityQuestion, securityAnswer }: { name: string; password: string; securityQuestion: string; securityAnswer: string }) =>
+      DatabaseService.createUser(name, password, securityQuestion, securityAnswer),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.users });
     },
@@ -68,7 +69,7 @@ export function useDeleteUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => DatabaseService.deleteUser(id),
+    mutationFn: ({ id, password }: { id: string; password: string }) => DatabaseService.deleteUserByPassword(id, password),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.users });
     },
@@ -112,6 +113,7 @@ export function useCreateConversation() {
       title,
       messages,
       model,
+      provider,
       pinned = false,
       password
     }: {
@@ -119,9 +121,10 @@ export function useCreateConversation() {
       title: string;
       messages: any[];
       model: string;
+      provider?: ProviderType;
       pinned?: boolean;
       password?: string;
-    }) => DatabaseService.createConversation(userId, title, messages, model, pinned, password),
+    }) => DatabaseService.createConversation(userId, title, messages, model, pinned, password, provider),
     onSuccess: (newConversation, { userId }) => {
       // Invalidate and refetch conversations for this user
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations(userId) });

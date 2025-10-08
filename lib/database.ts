@@ -3,11 +3,14 @@ import { EncryptedFileStorage, EncryptedFileMetadata } from './encrypted-file-st
 import { EncryptedProjectStorage, EncryptedProjectData } from './encrypted-project-storage';
 import { EncryptedConversationStorage, EncryptedConversationData } from './encrypted-conversation-storage';
 import { EncryptionService } from './encryption';
+import { ProviderType } from './model-types';
 
 export interface User {
   id: string;
   name: string;
   password: string;
+  securityQuestion: string;
+  securityAnswer: string;
   createdAt: string;
 }
 
@@ -42,9 +45,9 @@ export class LoRADatabase extends Dexie {
       conversations: 'id, userId, title, createdAt, updatedAt, pinned'
     });
 
-    this.version(3).stores({
-      users: 'id, name, createdAt',
-      conversations: 'id, userId, title, createdAt, updatedAt, pinned',
+    this.version(5).stores({
+      users: 'id, name, createdAt, securityQuestion',
+      conversations: 'id, userId, title, createdAt, updatedAt, pinned, provider',
       files: 'id, userId, name, type, path, parentId, createdAt, updatedAt',
       projects: 'id, userId, name, category, createdAt, updatedAt'
     });
@@ -208,7 +211,7 @@ export class DatabaseService {
   }
 
   // User operations
-  static async createUser(name: string, password: string): Promise<User | null> {
+  static async createUser(name: string, password: string, securityQuestion: string, securityAnswer: string): Promise<User | null> {
     this.checkBrowserEnvironment();
     try {
       const existingUser = await this.getDatabase().users.where('name').equalsIgnoreCase(name).first();
@@ -221,13 +224,16 @@ export class DatabaseService {
         throw new Error('Password does not meet security requirements');
       }
 
-      // Hash the password before storing
+      // Hash the password and security answer before storing
       const hashedPassword = await EncryptionService.hashPassword(password);
+      const hashedSecurityAnswer = await EncryptionService.hashPassword(securityAnswer.toLowerCase().trim());
 
       const user: User = {
         id: Date.now().toString(),
         name: name.trim(),
         password: hashedPassword, // Store hashed password
+        securityQuestion: securityQuestion.trim(),
+        securityAnswer: hashedSecurityAnswer, // Store hashed security answer
         createdAt: new Date().toISOString()
       };
 
@@ -276,13 +282,40 @@ export class DatabaseService {
     }
   }
 
-  static async deleteUser(id: string): Promise<void> {
+  static async verifySecurityAnswer(name: string, securityAnswer: string): Promise<User | null> {
     try {
-      await this.getDatabase().users.delete(id);
-      // Also delete all conversations for this user
-      await this.getDatabase().conversations.where('userId').equals(id).delete();
+      const user = await this.getDatabase().users.where('name').equalsIgnoreCase(name).first();
+      if (!user) return null;
+
+      const hashedAnswer = await EncryptionService.hashPassword(securityAnswer.toLowerCase().trim());
+      const isValidAnswer = hashedAnswer === user.securityAnswer;
+      return isValidAnswer ? user : null;
     } catch (error) {
-      console.error('Error deleting user:', error);
+      console.error('Error verifying security answer:', error);
+      return null;
+    }
+  }
+
+  static async resetPassword(name: string, securityAnswer: string, newPassword: string): Promise<boolean> {
+    try {
+      // First verify the security answer
+      const user = await this.verifySecurityAnswer(name, securityAnswer);
+      if (!user) return false;
+
+      // Validate new password strength
+      if (!this.validatePasswordStrength(newPassword)) {
+        throw new Error('New password does not meet security requirements');
+      }
+
+      // Hash the new password
+      const hashedPassword = await EncryptionService.hashPassword(newPassword);
+
+      // Update the user's password
+      await this.getDatabase().users.update(user.id, { password: hashedPassword });
+      return true;
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      return false;
     }
   }
 
@@ -293,7 +326,8 @@ export class DatabaseService {
     messages: any[],
     model: string,
     pinned: boolean = false,
-    password?: string
+    password?: string,
+    provider?: ProviderType
   ): Promise<Conversation | null> {
     try {
       const conversationId = Date.now().toString();
@@ -305,6 +339,7 @@ export class DatabaseService {
         title,
         messages,
         model,
+        provider,
         pinned,
         createdAt: now,
         updatedAt: now
@@ -330,6 +365,7 @@ export class DatabaseService {
         title,
         messages: password ? [] : messages, // Clear messages if encrypted
         model,
+        provider,
         pinned,
         createdAt: now,
         updatedAt: now,
@@ -503,6 +539,95 @@ export class DatabaseService {
       }
     } catch (error) {
       console.error('Error exporting conversations for knowledge base:', error);
+      return '';
+    }
+  }
+
+  static async retrieveRelevantConversationHistory(
+    userId: string,
+    query: string,
+    currentConversationId: string | undefined,
+    password?: string,
+    maxResults: number = 3
+  ): Promise<string> {
+    try {
+      // Get all conversations for the user
+      const conversations = await this.getDatabase().conversations.where('userId').equals(userId).toArray();
+
+      // If password provided, decrypt conversations from encrypted storage
+      let validConversations: Conversation[] = [];
+      if (password) {
+        const decryptedConversations = await Promise.all(
+          conversations.map(async (conv) => {
+            if (conv.encryptedPath) {
+              try {
+                return await EncryptedConversationStorage.loadConversation(conv.encryptedPath, password);
+              } catch (error) {
+                console.warn(`Failed to decrypt conversation ${conv.id}:`, error);
+                return null;
+              }
+            }
+            return conv;
+          })
+        );
+        validConversations = decryptedConversations.filter(conv => conv !== null) as Conversation[];
+      } else {
+        // Use unencrypted conversations
+        validConversations = conversations.filter(conv => conv.messages && conv.messages.length > 0);
+      }
+
+      // Filter out current conversation and empty conversations
+      validConversations = validConversations.filter(conv =>
+        conv.id !== currentConversationId && conv.messages && conv.messages.length > 0
+      );
+
+      // Simple relevance scoring based on text matching
+      const scoredConversations = validConversations.map(conv => {
+        const conversationText = conv.messages.map((msg: any) =>
+          typeof msg.content === 'string' ? msg.content : ''
+        ).join(' ').toLowerCase();
+
+        const queryLower = query.toLowerCase();
+        let score = 0;
+
+        // Simple keyword matching
+        const queryWords = queryLower.split(/\s+/).filter(word => word.length > 2);
+        for (const word of queryWords) {
+          if (conversationText.includes(word)) {
+            score += 1;
+          }
+        }
+
+        // Boost score for conversations with more messages (indicating depth)
+        score += Math.min(conv.messages.length / 10, 2);
+
+        // Boost score for recent conversations
+        const daysSinceUpdate = (Date.now() - new Date(conv.updatedAt).getTime()) / (1000 * 60 * 60 * 24);
+        score += Math.max(0, 1 - daysSinceUpdate / 30); // Boost for conversations updated within last 30 days
+
+        return { conversation: conv, score };
+      });
+
+      // Sort by score and take top results
+      scoredConversations.sort((a, b) => b.score - a.score);
+      const topConversations = scoredConversations.slice(0, maxResults);
+
+      // Format the relevant conversation history
+      const historyParts: string[] = [];
+      for (const { conversation } of topConversations) {
+        const messages = conversation.messages.slice(-6); // Last 6 messages to keep context manageable
+        const formattedMessages = messages.map((msg: any, idx: number) => {
+          const role = msg.role === 'user' ? 'User' : 'Assistant';
+          const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+          return `${role}: ${content.substring(0, 500)}${content.length > 500 ? '...' : ''}`;
+        }).join('\n');
+
+        historyParts.push(`Conversation: ${conversation.title}\nDate: ${new Date(conversation.updatedAt).toLocaleDateString()}\n${formattedMessages}`);
+      }
+
+      return historyParts.join('\n\n---\n\n');
+    } catch (error) {
+      console.error('Error retrieving relevant conversation history:', error);
       return '';
     }
   }

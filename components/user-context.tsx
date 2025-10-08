@@ -16,9 +16,11 @@ interface UserContextType {
   currentUser: User | null;
   login: (name: string, password: string) => Promise<boolean>;
   logout: () => void;
-  createUser: (name: string, password: string) => Promise<boolean>;
+  createUser: (name: string, password: string, securityQuestion: string, securityAnswer: string) => Promise<boolean>;
   switchUser: (userId: string, password: string) => Promise<boolean>;
   deleteCurrentUser: (password: string) => Promise<boolean>;
+  resetPassword: (name: string, securityAnswer: string, newPassword: string) => Promise<boolean>;
+  verifySecurityAnswer: (name: string, securityAnswer: string) => Promise<User | null>;
   isAuthenticated: boolean;
   isLoading: boolean;
 }
@@ -78,9 +80,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }, [sessionExpiry]);
 
-  const createUser = async (name: string, password: string): Promise<boolean> => {
+  const createUser = async (name: string, password: string, securityQuestion: string, securityAnswer: string): Promise<boolean> => {
     try {
-      const newUser = await createUserMutation.mutateAsync({ name, password });
+      const newUser = await createUserMutation.mutateAsync({ name, password, securityQuestion, securityAnswer });
       return !!newUser;
     } catch (error) {
       console.error("Error creating user:", error);
@@ -105,6 +107,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
       console.error("Error logging in:", error);
       return false;
     }
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    setSessionExpiry(null);
+    localStorage.removeItem("lora_current_user");
+    localStorage.removeItem("lora_session_expiry");
   };
 
   const switchUser = async (userId: string, password: string): Promise<boolean> => {
@@ -149,11 +158,22 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
-    setCurrentUser(null);
-    setSessionExpiry(null);
-    localStorage.removeItem("lora_current_user");
-    localStorage.removeItem("lora_session_expiry");
+  const resetPassword = async (name: string, securityAnswer: string, newPassword: string): Promise<boolean> => {
+    try {
+      return await DatabaseService.resetPassword(name, securityAnswer, newPassword);
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      return false;
+    }
+  };
+
+  const verifySecurityAnswer = async (name: string, securityAnswer: string): Promise<User | null> => {
+    try {
+      return await DatabaseService.verifySecurityAnswer(name, securityAnswer);
+    } catch (error) {
+      console.error("Error verifying security answer:", error);
+      return null;
+    }
   };
 
   const isAuthenticated = currentUser !== null;
@@ -167,6 +187,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       createUser,
       switchUser,
       deleteCurrentUser,
+      resetPassword,
+      verifySecurityAnswer,
       isAuthenticated,
       isLoading
     }}>
