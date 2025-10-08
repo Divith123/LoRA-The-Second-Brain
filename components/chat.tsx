@@ -3,20 +3,6 @@
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { type CoreMessage } from "ai";
-
-// Extended message type with mode and file information
-type ExtendedMessage = CoreMessage & {
-  mode?: "think-longer" | "deep-research" | "web-search" | "study";
-  files?: { id: string; name: string; size?: number }[];
-  knowledgeSources?: {
-    used: boolean;
-    sources: Array<{
-      title: string;
-      date: string;
-      content: string;
-    }>;
-  };
-};
 import ChatInput from "./chat-input";
 import { readStreamableValue } from "ai/rsc";
 import { FaUser } from "react-icons/fa6";
@@ -36,35 +22,27 @@ import { useModel } from "./app-content";
 import { Pin, MoreVertical, Volume2, Clock, Search, BookOpen, ChevronDown } from "lucide-react";
 import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
-import { ProviderType } from "@/lib/model-types";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import FilePreviewModal from "./file-preview-modal";
+import prettyBytes from "pretty-bytes";
+import jsPDF from "jspdf";
+import { ProviderType } from "@/lib/model-types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-// Helper functions
-const prettyBytes = (n: number) => {
-  if (!n && n !== 0) return "";
-  const u = ["B","KB","MB","GB"]; let i=0; let v=n;
-  while (v>=1024 && i<u.length-1){ v/=1024; i++; }
-  return `${v.toFixed(i?1:0)} ${u[i]}`;
-};
-
-const parseAssistantContent = (content: string, isStreaming: boolean = false) => {
-  if (content.startsWith('<think>')) {
-    const endIndex = content.indexOf('</think>');
-    if (endIndex !== -1) {
-      const think = content.substring(7, endIndex).trim();
-      const response = content.substring(endIndex + 8).trim();
-      return { think, response };
-    } else if (isStreaming) {
-      // During streaming, if we haven't seen </think> yet, show everything after <think> as thinking
-      const think = content.substring(7).trim();
-      return { think, response: '' };
-    }
-  }
-  return { think: null, response: content };
+// Extended message type with additional properties
+type ExtendedMessage = CoreMessage & {
+  mode?: "think-longer" | "deep-research" | "web-search" | "study";
+  files?: { id: string; name: string; size?: number }[];
+  knowledgeSources?: {
+    used: boolean;
+    sources: Array<{
+      title: string;
+      date: string;
+      content: string;
+    }>;
+  };
 };
 
 export default function Chat() {
@@ -82,77 +60,61 @@ export default function Chat() {
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [isPlayingTTS, setIsPlayingTTS] = useState(false);
+  const [knowledgeSources, setKnowledgeSources] = useState<Array<{title: string; date: string; content: string}>>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlayingTTS, setIsPlayingTTS] = useState(false);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
-  const [activeMode, setActiveMode] = useState<"think-longer" | "deep-research" | "web-search" | "study" | null>(null);
-  const [thinkingStates, setThinkingStates] = useState<Record<string, boolean>>(() => {
-    if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('thinking-expanded');
-      const defaultExpanded = cached !== null ? JSON.parse(cached) : true;
-      return {};
-    }
-    return {};
-  });
+  const [thinkingStates, setThinkingStates] = useState<Record<string, boolean>>({});
+  const [knowledgeStates, setKnowledgeStates] = useState<Record<string, boolean>>({});
 
-  const getThinkingState = (messageId: string) => {
-    if (thinkingStates[messageId] !== undefined) {
-      return thinkingStates[messageId];
+  // Helper function to detect and format image URLs and base64 data in text
+  const formatMessageWithImages = (content: string): string => {
+    if (!content) return content;
+
+    // For Gemini responses, the content already has proper markdown images
+    if (content.includes('![Generated Image](')) {
+      return content;
     }
-    // Initialize from cache
-    const cached = localStorage.getItem('thinking-expanded');
-    return cached !== null ? JSON.parse(cached) : true;
+
+    // Regular expression to match image URLs
+    const imageUrlRegex = /(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff|avif)(\?[^\s]*)?)/gi;
+    // Regular expression to match base64 image data
+    const base64ImageRegex = /data:image\/[a-zA-Z]+;base64,[a-zA-Z0-9+/=]+/gi;
+
+    // Regular expression to match markdown image syntax that's already there
+    const markdownImageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+
+    let formattedContent = content;
+
+    // First, check if there are already markdown images
+    const existingImages = content.match(markdownImageRegex);
+    if (existingImages && existingImages.length > 0) {
+      return content; // Don't process if already formatted
+    }
+
+    // Replace image URLs with markdown image syntax
+    formattedContent = formattedContent.replace(imageUrlRegex, (match) => {
+      const altText = "Generated image";
+      return `![${altText}](${match})`;
+    });
+
+    // Replace base64 image data with markdown image syntax
+    formattedContent = formattedContent.replace(base64ImageRegex, (match) => {
+      const altText = "Generated image";
+      return `![${altText}](${match})`;
+    });
+
+    return formattedContent;
   };
 
-  const setThinkingState = (messageId: string, expanded: boolean) => {
-    setThinkingStates(prev => ({ ...prev, [messageId]: expanded }));
-    localStorage.setItem('thinking-expanded', JSON.stringify(expanded));
-  };
-
-  const [knowledgeStates, setKnowledgeStates] = useState<Record<string, boolean>>(() => {
-    if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('knowledge-expanded');
-      const defaultExpanded = cached !== null ? JSON.parse(cached) : true;
-      return {};
-    }
-    return {};
-  });
-
-  const getKnowledgeState = (messageId: string) => {
-    if (knowledgeStates[messageId] !== undefined) {
-      return knowledgeStates[messageId];
-    }
-    // Initialize from cache
-    const cached = localStorage.getItem('knowledge-expanded');
-    return cached !== null ? JSON.parse(cached) : true;
-  };
-
-  const setKnowledgeState = (messageId: string, expanded: boolean) => {
-    setKnowledgeStates(prev => ({ ...prev, [messageId]: expanded }));
-    localStorage.setItem('knowledge-expanded', JSON.stringify(expanded));
-  };
-
-  // Client-side function to retrieve relevant conversation history
+  // Conversation history retrieval for knowledge base context
   const retrieveRelevantConversationHistory = useCallback(async (
     userId: string,
     currentQuery: string,
-    currentConversationId?: string,
+    currentConversationId: string | undefined,
     password?: string,
     maxResults: number = 5
-  ): Promise<{
-    formattedText: string;
-    sources: Array<{
-      title: string;
-      date: string;
-      content: string;
-    }>;
-  }> => {
-    // Strict check for browser environment
-    if (typeof window === 'undefined' || !window.indexedDB) {
-      console.warn('retrieveRelevantConversationHistory called in server environment - skipping');
-      return { formattedText: '', sources: [] };
-    }
-
+  ): Promise<{ formattedText: string; sources: Array<{title: string; date: string; content: string}> }> => {
     try {
       // Get all conversations for the user
       const conversations = await DatabaseService.getConversationsByUserId(userId);
@@ -161,11 +123,7 @@ export default function Chat() {
       const otherConversations = conversations.filter(conv => conv.id !== currentConversationId);
 
       const relevantSnippets: string[] = [];
-      const sources: Array<{
-        title: string;
-        date: string;
-        content: string;
-      }> = [];
+      const sources: Array<{title: string; date: string; content: string}> = [];
 
       for (const conversation of otherConversations.slice(0, 20)) { // Limit to recent 20 conversations for performance
         try {
@@ -194,81 +152,43 @@ export default function Chat() {
           const queryLower = currentQuery.toLowerCase();
 
           // Simple relevance check - look for keyword matches
-          const queryWords = queryLower.split(/\s+/).filter(word => word.length > 1); // Allow 2+ character words
-          const relevantWords = queryWords.filter(word => !['who', 'what', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'].includes(word.toLowerCase()));
-          
+          const queryWords = queryLower.split(/\s+/).filter(word => word.length > 2);
+          const titleWords = titleLower.split(/\s+/);
+
           let relevanceScore = 0;
 
-          // Title relevance - check for any relevant word matches
-          for (const queryWord of relevantWords) {
-            if (titleLower.includes(queryWord)) {
+          // Title relevance
+          for (const queryWord of queryWords) {
+            if (titleWords.some(titleWord => titleWord.includes(queryWord) || queryWord.includes(titleWord))) {
               relevanceScore += 10; // High score for title matches
             }
           }
 
-          // If title has good matches, boost the score
-          if (relevanceScore >= 5) {
-            relevanceScore += 5;
-          }
-
-          // Content relevance - check recent messages for any relevant words
-          const recentMessages = conversationData.messages
-            .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
-            .slice(-8); // Check last 8 messages for better context
-          
+          // Content relevance - check recent messages
+          const recentMessages = conversationData.messages.slice(-6); // Last 6 messages
           for (const message of recentMessages) {
-            const content = String(message.content || '').toLowerCase();
-            for (const queryWord of relevantWords) {
-              if (content.includes(queryWord)) {
-                relevanceScore += 3; // Higher score for content matches
-                break; // One match per message is enough
-              }
-            }
-          }
-
-          // Also check for exact phrase matches
-          if (queryLower.length > 3) {
-            if (titleLower.includes(queryLower)) {
-              relevanceScore += 15;
-            }
-            for (const message of recentMessages) {
+            if (message.role === 'user' || message.role === 'assistant') {
               const content = String(message.content || '').toLowerCase();
-              if (content.includes(queryLower)) {
-                relevanceScore += 10;
-                break;
+              for (const queryWord of queryWords) {
+                if (content.includes(queryWord)) {
+                  relevanceScore += 2; // Lower score for content matches
+                }
               }
             }
           }
 
           // If relevant enough, extract key information
-          if (relevanceScore >= 1) { // Even more inclusive - any relevance // Lowered threshold from 5 to 2
+          if (relevanceScore >= 5) {
             const keyMessages = conversationData.messages
               .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
-              .slice(-4) // Last 4 messages for more context
-              .map((msg: any) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${String(msg.content || '').slice(0, 150)}`) // Shorter content
+              .slice(-4) // Last 4 messages
+              .map((msg: any) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${String(msg.content || '').slice(0, 200)}`)
               .join('\n');
 
             if (keyMessages.trim()) {
-              // Extract just the relevant user messages for display
-              const userMessages = conversationData.messages
-                .filter((msg: any) => msg.role === 'user')
-                .slice(-2) // Last 2 user messages
-                .map((msg: any) => String(msg.content || '').trim())
-                .filter(content => content.length > 0);
-              
-              const summary = userMessages.length > 0 
-                ? userMessages.join('; ').substring(0, 200) + (userMessages.join('; ').length > 200 ? '...' : '')
-                : 'Previous conversation context';
-              
               relevantSnippets.push(
                 `From conversation "${conversationData.title}" (${new Date(conversationData.createdAt).toLocaleDateString()}):\n${keyMessages}`
               );
-              
-              sources.push({
-                title: conversationData.title,
-                date: new Date(conversationData.createdAt).toLocaleDateString(),
-                content: summary
-              });
             }
           }
 
@@ -283,26 +203,8 @@ export default function Chat() {
       }
 
       if (relevantSnippets.length > 0) {
-        // Create a more concise summary for the AI
-        const conciseFacts: string[] = [];
-        
-        sources.forEach(source => {
-          // Extract key user statements
-          const lines = source.content.split('\n');
-          const userStatements = lines
-            .filter(line => line.startsWith('User:'))
-            .map(line => line.replace('User:', '').trim())
-            .filter(stmt => stmt.length > 3 && !stmt.includes('?') && stmt.split(' ').length < 20); // Short factual statements
-          
-          conciseFacts.push(...userStatements);
-        });
-        
-        const conciseHistory = conciseFacts.length > 0 
-          ? `Key facts from previous conversations: ${conciseFacts.slice(0, 5).join('. ')}.`
-          : '';
-          
         return {
-          formattedText: conciseHistory,
+          formattedText: `## Previous Conversation Context\n\n${relevantSnippets.join('\n\n---\n\n')}\n\n`,
           sources
         };
       }
@@ -314,118 +216,284 @@ export default function Chat() {
     }
   }, []);
 
-  // Helper function to detect and format image URLs and base64 data in text
-  const formatMessageWithImages = (content: string): string => {
-    if (!content) return content;
+  // Helper functions for collapsible states
+  const getThinkingState = useCallback((messageId: string) => thinkingStates[messageId] ?? false, [thinkingStates]);
+  const setThinkingState = useCallback((messageId: string, expanded: boolean) => {
+    setThinkingStates(prev => ({ ...prev, [messageId]: expanded }));
+  }, []);
 
-    // For Gemini responses, the content already has proper markdown images
-    if (content.includes('![Generated Image](')) {
-      return content;
+  const getKnowledgeState = useCallback((messageId: string) => knowledgeStates[messageId] ?? false, [knowledgeStates]);
+  const setKnowledgeState = useCallback((messageId: string, expanded: boolean) => {
+    setKnowledgeStates(prev => ({ ...prev, [messageId]: expanded }));
+  }, []);
+
+  // TTS functionality
+  const handleTextToSpeech = useCallback(async (text: string, voice: string = 'Fritz-PlayAI') => {
+    // Strict guard: prevent any multiple calls
+    if (isPlayingTTS || currentAudioRef.current) {
+      console.log('TTS already in progress, ignoring request');
+      return;
     }
 
-    // Regular expression to match image URLs
-    const imageUrlRegex = /(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff|avif)(\?[^\s]*)?)/gi;
+    console.log('Starting TTS for text length:', text.length);
 
-    // Regular expression to match base64 image data
-    const base64ImageRegex = /data:image\/[a-zA-Z]+;base64,[a-zA-Z0-9+/=]+/gi;
+    try {
+      setIsPlayingTTS(true);
 
-    // Regular expression to match markdown image syntax that's already there
-    const markdownImageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+      // Strip markdown formatting for better TTS
+      const cleanText = text
+        .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
+        .replace(/\[.*?\]\(.*?\)/g, '$1') // Convert links to just text
+        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
+        .replace(/\*(.*?)\*/g, '$1') // Remove italic
+        .replace(/`(.*?)`/g, '$1') // Remove inline code
+        .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+        .replace(/^\s*[-*+]\s+/gm, '') // Remove list markers
+        .replace(/^\s*\d+\.\s+/gm, '') // Remove numbered list markers
+        .replace(/\n+/g, ' ') // Replace newlines with spaces
+        .trim();
 
-    let formattedContent = content;
+      if (!cleanText) {
+        toast.error('No text to speak');
+        setIsPlayingTTS(false);
+        return;
+      }
 
-    // First, check if there are already markdown images
-    const existingImages = content.match(markdownImageRegex);
-    if (existingImages && existingImages.length > 0) {
-      return content; // Don't process if already formatted
+      if (cleanText.length > 10000) {
+        toast.error('Text is too long for speech generation (max 10,000 characters)');
+        setIsPlayingTTS(false);
+        return;
+      }
+
+      console.log('Generating TTS for text:', cleanText.substring(0, 100) + '...');
+
+      const result = await handleTextToSpeechAction(cleanText, voice, 'wav');
+
+      // Convert base64 to blob and play
+      try {
+        console.log('Converting base64 to audio blob...');
+        const audioData = Uint8Array.from(atob(result.audioData), c => c.charCodeAt(0));
+        console.log('Audio data length:', audioData.length);
+
+        const audioBlob = new Blob([audioData], { type: result.contentType });
+        console.log('Audio blob size:', audioBlob.size, 'type:', audioBlob.type);
+
+        const audioUrl = URL.createObjectURL(audioBlob);
+        console.log('Audio URL created:', audioUrl);
+
+        const audio = new Audio(audioUrl);
+        currentAudioRef.current = audio;
+
+        // Add event listeners for debugging
+        audio.addEventListener('loadstart', () => console.log('Audio load started'));
+        audio.addEventListener('canplay', () => console.log('Audio can play'));
+        audio.addEventListener('error', (e) => {
+          console.error('Audio element error:', e);
+          console.error('Audio error code:', audio.error?.code, 'message:', audio.error?.message);
+          // Only show error if audio hasn't started playing yet
+          if (!audio.currentTime || audio.currentTime === 0) {
+            setIsPlayingTTS(false);
+            currentAudioRef.current = null;
+          }
+        });
+
+        // Try to play with user interaction handling
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            console.log('Audio started playing successfully');
+          }).catch(error => {
+            console.error('Error playing audio:', error);
+            console.error('Error name:', error.name, 'Error message:', error.message);
+            // Try to play on user interaction if autoplay failed
+            if (error.name === 'NotAllowedError') {
+              console.log('Autoplay blocked, waiting for user interaction');
+              const handleUserInteraction = () => {
+                if (currentAudioRef.current === audio) {
+                  audio.play().then(() => {
+                    console.log('Audio started after user interaction');
+                  }).catch(e => {
+                    console.error('Still failed to play audio after user interaction:', e);
+                    // Only show error if it's not another NotAllowedError and audio hasn't played
+                    if (e.name !== 'NotAllowedError' && (!audio.currentTime || audio.currentTime === 0)) {
+                      toast.error('Failed to play audio after user interaction');
+                    }
+                    setIsPlayingTTS(false);
+                    currentAudioRef.current = null;
+                  });
+                }
+                document.removeEventListener('click', handleUserInteraction);
+                document.removeEventListener('keydown', handleUserInteraction);
+              };
+              document.addEventListener('click', handleUserInteraction);
+              document.addEventListener('keydown', handleUserInteraction);
+            } else {
+              // Only show error if audio hasn't started playing
+              if (!audio.currentTime || audio.currentTime === 0) {
+                toast.error('Failed to play audio');
+              }
+              setIsPlayingTTS(false);
+              currentAudioRef.current = null;
+            }
+          });
+        }
+
+        // Clean up the URL after playing and reset playing state
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          setIsPlayingTTS(false);
+          currentAudioRef.current = null;
+        };
+      } catch (conversionError) {
+        console.error('Error converting audio data:', conversionError);
+        toast.error('Failed to process audio data');
+        setIsPlayingTTS(false);
+        currentAudioRef.current = null;
+      }
+    } catch (error) {
+      console.error('Error generating TTS:', error);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('API key not configured')) {
+        toast.error('Text-to-speech requires Groq API key. Please configure GROQ_API_KEY in your environment.');
+      } else {
+        toast.error(`Failed to generate speech: ${errorMessage}`);
+      }
+      setIsPlayingTTS(false);
+      currentAudioRef.current = null;
     }
+  }, [isPlayingTTS, currentAudioRef]);
 
-    // Replace image URLs with markdown image syntax
-    formattedContent = formattedContent.replace(imageUrlRegex, (match) => {
-      const altText = "Generated image";
-      return `![${altText}](${match})`;
-    });
+  // Copy functionality
+  const handleCopy = useCallback(async (text?: string) => {
+    if (!text) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      toast.success('Copied to clipboard');
+    } catch (e) {
+      console.error('Copy failed', e);
+      toast.error('Failed to copy');
+    }
+  }, []);
 
-    // Replace base64 image data with markdown image syntax
-    formattedContent = formattedContent.replace(base64ImageRegex, (match) => {
-      const altText = "Generated image";
-      return `![${altText}](${match})`;
-    });
+  // PDF export functionality
+  const handleExportPdf = useCallback((assistantText?: string, userText?: string, filename: string = 'deep-research.pdf') => {
+    if (!assistantText) return;
+    try {
+      const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+      const margin = 40;
+      const pageWidth = doc.internal.pageSize.getWidth() - margin * 2;
+      const lineHeight = 16;
 
-    return formattedContent;
-  };  const loadConversation = useCallback(async (conversationId: string) => {
+      // Header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('LoRA - Deep Research Chat Export', margin, 60);
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const modelText = `Model: ${currentModel || 'Unknown'}`;
+      const generatedText = `Generated: ${new Date().toLocaleString()}`;
+      doc.text(modelText, margin, 80);
+      doc.text(generatedText, margin, 96);
+
+      // Divider
+      doc.setDrawColor(200);
+      doc.setLineWidth(0.5);
+      doc.line(margin, 110, margin + pageWidth, 110);
+
+      let cursorY = 130;
+
+      // User section
+      if (userText) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text('You:', margin, cursorY);
+        cursorY += 18;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(11);
+        const userLines = doc.splitTextToSize(String(userText), pageWidth);
+        doc.text(userLines, margin, cursorY);
+        cursorY += userLines.length * lineHeight + 12;
+
+        // subtle divider after user
+        doc.setDrawColor(230);
+        doc.setLineWidth(0.5);
+        doc.line(margin, cursorY, margin + pageWidth, cursorY);
+        cursorY += 16;
+      }
+
+      // Assistant section
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text('LoRA:', margin, cursorY);
+      cursorY += 18;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      const assistantLines = doc.splitTextToSize(String(assistantText), pageWidth);
+
+      // If content exceeds page, handle simple pagination
+      let linesPerPage = Math.floor((doc.internal.pageSize.getHeight() - cursorY - margin) / lineHeight);
+      let start = 0;
+      while (start < assistantLines.length) {
+        const chunk = assistantLines.slice(start, start + linesPerPage);
+        doc.text(chunk, margin, cursorY);
+        start += linesPerPage;
+        if (start < assistantLines.length) {
+          doc.addPage();
+          cursorY = margin;
+          linesPerPage = Math.floor((doc.internal.pageSize.getHeight() - margin * 2) / lineHeight);
+        }
+      }
+
+      doc.save(filename);
+      toast.success('PDF downloaded');
+    } catch (e) {
+      console.error('PDF export failed', e);
+      toast.error('Failed to export PDF');
+    }
+  }, [currentModel]);
+
+  const loadConversation = useCallback(async (conversationId: string) => {
     try {
       const conversation = await DatabaseService.getConversationById(conversationId);
       if (conversation) {
-        if (conversation.encryptedPath) {
-          if (currentUser?.password) {
-            try {
-              const decrypted = await EncryptedConversationStorage.loadConversation(
-                conversation.encryptedPath,
-                currentUser.password
-              );
-              // Ensure all assistant messages have knowledgeSources property
-              const messagesWithKnowledge = (decrypted.messages || []).map((msg, index) => {
-                if (msg.role === 'assistant') {
-                  // Try to load knowledge sources from localStorage
-                  const knowledgeKey = `${conversationId}-knowledge-${index}`;
-                  const storedKnowledge = localStorage.getItem(knowledgeKey);
-                  let knowledgeSources = { used: false, sources: [] };
-                  
-                  if (storedKnowledge) {
-                    try {
-                      knowledgeSources = JSON.parse(storedKnowledge);
-                    } catch (e) {
-                      console.warn('Failed to parse stored knowledge sources:', e);
-                    }
-                  }
-                  
-                  return {
-                    ...msg,
-                    knowledgeSources
-                  };
-                }
-                return msg;
-              });
-              setMessages(messagesWithKnowledge);
-              if (!currentModel) onModelChange(decrypted.model || "", decrypted.provider);
-            } catch (error) {
-              console.error("Failed to decrypt conversation:", error);
-              toast.warning("This conversation could not be decrypted. Starting with empty chat.");
-              setMessages([]);
+        if (conversation.encryptedPath && currentUser?.password) {
+          try {
+            const decrypted = await EncryptedConversationStorage.loadConversation(
+              conversation.encryptedPath,
+              currentUser.password
+            );
+            setMessages(decrypted.messages || []);
+            if (!currentModel) onModelChange(decrypted.model || "");
+          } catch (error) {
+            console.error("Failed to decrypt conversation:", error);
+
+            // only fall back if there is real plaintext content
+            const hasPlain = Array.isArray(conversation.messages) && conversation.messages.length > 0;
+            if (hasPlain) {
+              setMessages(conversation.messages);
+              if (!currentModel) onModelChange(conversation.model || "");
+              toast.error("Failed to load encrypted conversation - using unencrypted data");
+            } else {
+              // keep whatever is currently shown; don’t overwrite with empty
+              toast.error("Failed to load encrypted conversation");
             }
-          } else {
-            // Encrypted conversation but no password available
-            setMessages([]);
-            if (!currentModel) onModelChange("");
-            toast.warning("This conversation is encrypted. Please log in with your password to access it.");
           }
         } else {
-          // Ensure all assistant messages have knowledgeSources property
-          const messagesWithKnowledge = (conversation.messages || []).map((msg, index) => {
-            if (msg.role === 'assistant') {
-              // Try to load knowledge sources from localStorage
-              const knowledgeKey = `${conversationId}-knowledge-${index}`;
-              const storedKnowledge = localStorage.getItem(knowledgeKey);
-              let knowledgeSources = { used: false, sources: [] };
-              
-              if (storedKnowledge) {
-                try {
-                  knowledgeSources = JSON.parse(storedKnowledge);
-                } catch (e) {
-                  console.warn('Failed to parse stored knowledge sources:', e);
-                }
-              }
-              
-              return {
-                ...msg,
-                knowledgeSources
-              };
-            }
-            return msg;
-          });
-          setMessages(messagesWithKnowledge);
-          if (!currentModel) onModelChange(conversation.model || "", (conversation as any).provider);
+          setMessages(conversation.messages || []);
+          if (!currentModel) onModelChange(conversation.model || "");
         }
       }
     } catch (error) {
@@ -434,6 +502,30 @@ export default function Chat() {
       setMessages([]);
     }
   }, [currentUser, currentModel, onModelChange]);
+
+  // Helper function to parse assistant content for thinking and response separation
+  const parseAssistantContent = (content: string, isStreaming: boolean) => {
+    if (!content) return { think: '', response: content };
+
+    // Look for thinking pattern: content wrapped in <think> or <thinking> tags, or starting with "Thinking:" or "Let me think"
+    const thinkPatterns = [
+      /<think>([\s\S]*?)<\/think>/i,
+      /<thinking>([\s\S]*?)<\/thinking>/i,
+      /^Thinking:([\s\S]*?)(?=\n\n|\n[A-Z]|$)/i,
+      /^Let me think[\s\S]*?([\s\S]*?)(?=\n\n|\n[A-Z]|$)/i
+    ];
+
+    for (const pattern of thinkPatterns) {
+      const match = content.match(pattern);
+      if (match) {
+        const think = match[1].trim();
+        const response = content.replace(match[0], '').trim();
+        return { think, response: response || '...' };
+      }
+    }
+
+    return { think: '', response: content };
+  };
 
   // Load conversations when user changes
   useEffect(() => {
@@ -540,141 +632,6 @@ export default function Chat() {
       }
     }
   };
-
-  const handleTextToSpeech = useCallback(async (text: string, voice: string = 'Fritz-PlayAI') => {
-    // Strict guard: prevent any multiple calls
-    if (isPlayingTTS || currentAudioRef.current) {
-      console.log('TTS already in progress, ignoring request');
-      return;
-    }
-
-    console.log('Starting TTS for text length:', text.length);
-    
-    try {
-      setIsPlayingTTS(true);
-      
-      // Strip markdown formatting for better TTS
-      const cleanText = text
-        .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images
-        .replace(/\[.*?\]\(.*?\)/g, '$1') // Convert links to just text
-        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
-        .replace(/\*(.*?)\*/g, '$1') // Remove italic
-        .replace(/`(.*?)`/g, '$1') // Remove inline code
-        .replace(/```[\s\S]*?```/g, '') // Remove code blocks
-        .replace(/^\s*[-*+]\s+/gm, '') // Remove list markers
-        .replace(/^\s*\d+\.\s+/gm, '') // Remove numbered list markers
-        .replace(/\n+/g, ' ') // Replace newlines with spaces
-        .trim();
-
-      if (!cleanText) {
-        toast.error('No text to speak');
-        setIsPlayingTTS(false);
-        return;
-      }
-
-      if (cleanText.length > 10000) {
-        toast.error('Text is too long for speech generation (max 10,000 characters)');
-        setIsPlayingTTS(false);
-        return;
-      }
-
-      console.log('Generating TTS for text:', cleanText.substring(0, 100) + '...');
-      
-      const result = await handleTextToSpeechAction(cleanText, voice, 'wav');
-      
-      // Convert base64 to blob and play
-      try {
-        console.log('Converting base64 to audio blob...');
-        const audioData = Uint8Array.from(atob(result.audioData), c => c.charCodeAt(0));
-        console.log('Audio data length:', audioData.length);
-        
-        const audioBlob = new Blob([audioData], { type: result.contentType });
-        console.log('Audio blob size:', audioBlob.size, 'type:', audioBlob.type);
-        
-        const audioUrl = URL.createObjectURL(audioBlob);
-        console.log('Audio URL created:', audioUrl);
-        
-        const audio = new Audio(audioUrl);
-        currentAudioRef.current = audio;
-        
-        // Add event listeners for debugging
-        audio.addEventListener('loadstart', () => console.log('Audio load started'));
-        audio.addEventListener('canplay', () => console.log('Audio can play'));
-        audio.addEventListener('error', (e) => {
-          console.error('Audio element error:', e);
-          console.error('Audio error code:', audio.error?.code, 'message:', audio.error?.message);
-          // Only show error if audio hasn't started playing yet
-          if (!audio.currentTime || audio.currentTime === 0) {
-            setIsPlayingTTS(false);
-            currentAudioRef.current = null;
-          }
-        });
-        
-        // Try to play with user interaction handling
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise.then(() => {
-            console.log('Audio started playing successfully');
-          }).catch(error => {
-            console.error('Error playing audio:', error);
-            console.error('Error name:', error.name, 'Error message:', error.message);
-            // Try to play on user interaction if autoplay failed
-            if (error.name === 'NotAllowedError') {
-              console.log('Autoplay blocked, waiting for user interaction');
-              const handleUserInteraction = () => {
-                if (currentAudioRef.current === audio) {
-                  audio.play().then(() => {
-                    console.log('Audio started after user interaction');
-                  }).catch(e => {
-                    console.error('Still failed to play audio after user interaction:', e);
-                    // Only show error if it's not another NotAllowedError and audio hasn't played
-                    if (e.name !== 'NotAllowedError' && (!audio.currentTime || audio.currentTime === 0)) {
-                      toast.error('Failed to play audio after user interaction');
-                    }
-                    setIsPlayingTTS(false);
-                    currentAudioRef.current = null;
-                  });
-                }
-                document.removeEventListener('click', handleUserInteraction);
-                document.removeEventListener('keydown', handleUserInteraction);
-              };
-              document.addEventListener('click', handleUserInteraction);
-              document.addEventListener('keydown', handleUserInteraction);
-            } else {
-              // Only show error if audio hasn't started playing
-              if (!audio.currentTime || audio.currentTime === 0) {
-                toast.error('Failed to play audio');
-              }
-              setIsPlayingTTS(false);
-              currentAudioRef.current = null;
-            }
-          });
-        }
-        
-        // Clean up the URL after playing and reset playing state
-        audio.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          setIsPlayingTTS(false);
-          currentAudioRef.current = null;
-        };
-      } catch (conversionError) {
-        console.error('Error converting audio data:', conversionError);
-        toast.error('Failed to process audio data');
-        setIsPlayingTTS(false);
-        currentAudioRef.current = null;
-      }
-    } catch (error) {
-      console.error('Error generating TTS:', error);
-      const errorMessage = (error as Error).message;
-      if (errorMessage.includes('API key not configured')) {
-        toast.error('Text-to-speech requires Groq API key. Please configure GROQ_API_KEY in your environment.');
-      } else {
-        toast.error(`Failed to generate speech: ${errorMessage}`);
-      }
-      setIsPlayingTTS(false);
-      currentAudioRef.current = null;
-    }
-  }, [isPlayingTTS, currentAudioRef]);
 
   const handleSubmit = async ({
     input,
@@ -788,54 +745,10 @@ export default function Chat() {
         ? `User attached files:\n${files.map((f, i) => `${i + 1}. ${f.name} (${f.size ?? 'unknown'} bytes)`).join('\n')}\n\nPlease use all attached files together when answering.`
         : "";
 
-      // Fetch relevant conversation history for knowledge base context
-      let conversationHistory = '';
-      let knowledgeSources: Array<{
-        title: string;
-        date: string;
-        content: string;
-      }> = [];
-      
-      if (currentUser?.id && typeof window !== 'undefined' && window.indexedDB) {
-        try {
-          const historyResult = await retrieveRelevantConversationHistory(
-            currentUser.id,
-            input,
-            currentConversationId || undefined,
-            currentUser.password,
-            5  // Increased from 3 to 5 conversations
-          );
-          conversationHistory = historyResult.formattedText;
-          knowledgeSources = historyResult.sources;
-        } catch (error) {
-          console.warn('Failed to retrieve conversation history:', error);
-          // Continue without conversation history if it fails
-        }
-      }
+      const messagesToSend = fileListText ? [{ role: 'system' as const, content: fileListText }, ...newMessages] : newMessages;
 
-      const systemMessages = [];
-      
-      // Add file context if any
-      if (fileListText) {
-        systemMessages.push({ role: 'system' as const, content: fileListText });
-      }
-      
-      // Add conversation history if available
-      if (conversationHistory) {
-        systemMessages.push({ 
-          role: 'system' as const, 
-          content: `IMPORTANT: Use this context from previous conversations to provide personalized responses: ${conversationHistory}` 
-        });
-      }
-
-      const messagesToSend = [...systemMessages, ...newMessages];
-
-      // pass fileIds, conversation history, and mode for knowledge base context
-      const result = await continueConversation(messagesToSend, model, currentProvider, {
-        fileIds,
-        conversationHistory,
-        mode,
-      });
+      // pass fileIds to RAG-enabled server action (server will run retrieval internally)
+      const result = await continueConversation(messagesToSend, model, currentProvider || 'ollama', { fileIds });
 
       setIsStreaming(true);
       let finalAssistantContent = "";
@@ -976,8 +889,8 @@ export default function Chat() {
 
       <div className="flex-1 overflow-y-auto pb-4">
         {messages.map((m, i) => {
-          const message = m as ExtendedMessage;
           const messageId = `${i}-${m.content?.toString().length || 0}`;
+          const message = m as ExtendedMessage;
           return (
             <div key={messageId} className={cn("mb-4 p-2", m.role === "user" ? "flex justify-end" : "flex justify-start")}>
               <div className={cn("flex items-start max-w-[80%]", m.role === "user" ? "flex-row-reverse" : "flex-row")}>
@@ -1052,17 +965,17 @@ export default function Chat() {
                   )}
 
                   {(() => {
-                    const content = isStreaming && i === messages.length - 1 && m.role === "assistant" 
-                      ? streamingContent 
+                    const content = isStreaming && i === messages.length - 1 && m.role === "assistant"
+                      ? streamingContent
                       : m.content as string;
                     const isCurrentlyStreaming = isStreaming && i === messages.length - 1 && m.role === "assistant";
                     const { think, response } = parseAssistantContent(content, isCurrentlyStreaming);
                     return (
                       <>
                         {think && !isCurrentlyStreaming && (
-                          <Collapsible 
-                            open={getThinkingState(messageId)} 
-                            onOpenChange={(expanded) => setThinkingState(messageId, expanded)} 
+                          <Collapsible
+                            open={getThinkingState(messageId)}
+                            onOpenChange={(expanded) => setThinkingState(messageId, expanded)}
                             className="mb-2"
                           >
                             <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
@@ -1075,9 +988,9 @@ export default function Chat() {
                           </Collapsible>
                         )}
                         {m.role === "assistant" && !isCurrentlyStreaming && (
-                          <Collapsible 
-                            open={getKnowledgeState(messageId)} 
-                            onOpenChange={(expanded) => setKnowledgeState(messageId, expanded)} 
+                          <Collapsible
+                            open={getKnowledgeState(messageId)}
+                            onOpenChange={(expanded) => setKnowledgeState(messageId, expanded)}
                             className="mb-2"
                           >
                             <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
@@ -1103,7 +1016,7 @@ export default function Chat() {
                             </CollapsibleContent>
                           </Collapsible>
                         )}
-                        
+
                         {/* Show "Thinking..." during streaming */}
                         {isCurrentlyStreaming && (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
@@ -1111,7 +1024,7 @@ export default function Chat() {
                             <span className="italic">Thinking...</span>
                           </div>
                         )}
-                        
+
                         <MemoizedReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           className="text-sm">
@@ -1121,23 +1034,55 @@ export default function Chat() {
                     );
                   })()}
                   {m.role === "assistant" && !isStreaming && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        if (!isPlayingTTS) {
-                          handleTextToSpeech(m.content as string);
+                    <div className="inline-flex items-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (!isPlayingTTS) {
+                            handleTextToSpeech(m.content as string);
+                          }
+                        }}
+                        disabled={isPlayingTTS}
+                        className={cn(
+                          "h-6 w-6 p-0 ml-2 opacity-60 hover:opacity-100",
+                          isPlayingTTS && "opacity-30 cursor-not-allowed pointer-events-none select-none"
+                        )}
+                        title={isPlayingTTS ? "Audio is playing" : "Listen to this message"}
+                      >
+                        <Volume2 className={cn("h-3 w-3", isPlayingTTS && "text-blue-500 animate-pulse")} />
+                      </Button>
+
+                      {/* PDF export only when previous message (user) was deep-research */}
+                      {(() => {
+                        try {
+                          const prev = messages[i - 1] as ExtendedMessage | undefined;
+                          return prev && prev.role === 'user' && prev.mode === 'deep-research';
+                        } catch (e) {
+                          return false;
                         }
-                      }}
-                      disabled={isPlayingTTS}
-                      className={cn(
-                        "h-6 w-6 p-0 ml-2 opacity-60 hover:opacity-100",
-                        isPlayingTTS && "opacity-30 cursor-not-allowed pointer-events-none select-none"
+                      })() && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleExportPdf(m.content as string, (messages[i - 1] as ExtendedMessage)?.content as string)}
+                          className="h-6 w-6 p-0 ml-1 opacity-60 hover:opacity-100"
+                          title="Export this deep research response as PDF"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                        </Button>
                       )}
-                      title={isPlayingTTS ? "Audio is playing" : "Listen to this message"}
-                    >
-                      <Volume2 className={cn("h-3 w-3", isPlayingTTS && "text-blue-500 animate-pulse")} />
-                    </Button>
+
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCopy(m.content as string)}
+                        className="h-6 w-6 p-0 ml-2 opacity-60 hover:opacity-100"
+                        title="Copy assistant text"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1147,16 +1092,14 @@ export default function Chat() {
         <div ref={messageEndRef} />
       </div>
 
-      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t flex justify-center px-4">
-        <div className="w-full max-w-4xl">
-          <ChatInput
-            input={input}
-            setInput={setInput}
-            handleSubmit={handleSubmit}
-            model={currentModel}
-            handleModelChange={handleModelChange}
-          />
-        </div>
+      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t">
+        <ChatInput
+          input={input}
+          setInput={setInput}
+          handleSubmit={handleSubmit}
+          model={currentModel}
+          handleModelChange={handleModelChange}
+        />
       </div>
       <FilePreviewModal fileId={previewFileId} onClose={() => setPreviewFileId(null)} />
     </div>

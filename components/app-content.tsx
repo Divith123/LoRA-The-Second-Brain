@@ -1,7 +1,7 @@
 "use client";
 
 import React, { ReactNode, useState, createContext, useContext, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Nav from "@/components/nav";
 import { Toaster } from "@/components/ui/sonner";
 import { Analytics } from "@vercel/analytics/react";
@@ -39,7 +39,6 @@ function AppContentInner({ children }: AppContentProps) {
   const { isAuthenticated, isLoading, currentUser } = useUser();
   const { currentConversationId, setCurrentConversationId } = useConversation();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { data: isOllamaRunning = false } = useOllamaStatus();
   const [currentModel, setCurrentModel] = useState(() => {

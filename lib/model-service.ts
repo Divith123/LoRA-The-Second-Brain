@@ -1084,6 +1084,7 @@ class ModelService {
 
   // Map model names from other providers to OpenRouter equivalents
   private mapModelToOpenRouter(model: string, originalProvider: ProviderType): string {
+    console.log(`Mapping model ${model} from ${originalProvider} to OpenRouter equivalent`);
 
     // For Groq models, try to find equivalent models on OpenRouter
     if (originalProvider === 'groq') {
@@ -1109,7 +1110,18 @@ class ModelService {
       if (model === 'gpt-3.5-turbo') return 'openai/gpt-3.5-turbo';
     }
 
+    // For Gemini models, use the OpenRouter version (used as fallback)
+    if (originalProvider === 'gemini') {
+      if (model === 'gemini-1.5-pro') {
+        return 'openai/gpt-4o'; // Pro model falls back to GPT-4o
+      }
+      if (model === 'gemini-1.5-flash' || model === 'gemini-2.0-flash-exp') {
+        return 'openai/gpt-4o-mini'; // Flash models fallback
+      }
+    }
+
     // Default fallback to GPT-4o
+    console.log(`Using default fallback: openai/gpt-4o`);
     return 'openai/gpt-4o';
   }
 }

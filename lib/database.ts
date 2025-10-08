@@ -200,7 +200,6 @@ export class DatabaseService {
       return null;
     }
   }
-
   static async deleteUserByPassword(userId: string, password: string): Promise<boolean> {
     try {
       // Verify password before allowing deletion
