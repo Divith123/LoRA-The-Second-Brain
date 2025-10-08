@@ -1,5 +1,7 @@
 import { Ollama } from 'ollama';
 import { InferenceBackend, ProviderType, ProviderModel, HuggingFaceModel, LocalModel } from './model-types';
+import fs from 'fs/promises';
+import path from 'path';
 
 class ModelService {
   private ollama: Ollama;
@@ -120,16 +122,8 @@ class ModelService {
   }
 
   private async getGeminiModels(): Promise<ProviderModel[]> {
-    // Gemini models based on current documentation (October 2025)
+    // Gemini models that are directly supported by the Gemini API (no OpenRouter fallback)
     return [
-      {
-        id: 'gemini-2.5-pro',
-        name: 'Gemini 2.5 Pro',
-        provider: 'gemini',
-        contextLength: 2097152, // 2M tokens
-        pricing: { input: 0.00, output: 0.00 }, // Pricing TBD
-        capabilities: ['text', 'vision', 'multimodal', 'reasoning', 'coding']
-      },
       {
         id: 'gemini-2.5-flash',
         name: 'Gemini 2.5 Flash',
@@ -161,6 +155,14 @@ class ModelService {
         contextLength: 1048576, // 1M tokens
         pricing: { input: 0.00, output: 0.00 }, // Free tier available
         capabilities: ['text', 'vision', 'multimodal']
+      },
+      {
+        id: 'gemini-2.5-flash-image',
+        name: 'Gemini 2.5 Flash Image',
+        provider: 'gemini',
+        contextLength: 4000, // Limited for image generation
+        pricing: { input: 0.00, output: 0.00 }, // Pricing TBD
+        capabilities: ['text', 'image-generation']
       }
     ];
   }
@@ -292,30 +294,6 @@ class ModelService {
     return [
       // OpenAI models via OpenRouter
       {
-        id: 'openai/gpt-5',
-        name: 'GPT-5 (OpenRouter)',
-        provider: 'openrouter',
-        contextLength: 131072,
-        pricing: { input: 1.25, output: 10.00 },
-        capabilities: ['text', 'vision', 'reasoning']
-      },
-      {
-        id: 'openai/gpt-5-mini',
-        name: 'GPT-5 Mini (OpenRouter)',
-        provider: 'openrouter',
-        contextLength: 131072,
-        pricing: { input: 0.25, output: 2.00 },
-        capabilities: ['text', 'vision', 'reasoning']
-      },
-      {
-        id: 'openai/gpt-4.1',
-        name: 'GPT-4.1 (OpenRouter)',
-        provider: 'openrouter',
-        contextLength: 131072,
-        pricing: { input: 3.00, output: 12.00 },
-        capabilities: ['text', 'vision']
-      },
-      {
         id: 'openai/gpt-4o',
         name: 'GPT-4o (OpenRouter)',
         provider: 'openrouter',
@@ -331,6 +309,14 @@ class ModelService {
         pricing: { input: 0.15, output: 0.60 },
         capabilities: ['text', 'vision']
       },
+      {
+        id: 'openai/gpt-3.5-turbo',
+        name: 'GPT-3.5 Turbo (OpenRouter)',
+        provider: 'openrouter',
+        contextLength: 16385,
+        pricing: { input: 0.50, output: 1.50 },
+        capabilities: ['text']
+      },
       // Anthropic models
       {
         id: 'anthropic/claude-3.5-sonnet',
@@ -342,53 +328,28 @@ class ModelService {
       },
       // Meta Llama models
       {
-        id: 'meta-llama/llama-3.3-70b-instruct',
-        name: 'Llama 3.3 70B Instruct',
+        id: 'meta-llama/llama-3.1-8b-instruct',
+        name: 'Llama 3.1 8B Instruct',
+        provider: 'openrouter',
+        contextLength: 131072,
+        pricing: { input: 0.07, output: 0.07 },
+        capabilities: ['text']
+      },
+      {
+        id: 'meta-llama/llama-3.1-70b-instruct',
+        name: 'Llama 3.1 70B Instruct',
         provider: 'openrouter',
         contextLength: 131072,
         pricing: { input: 0.59, output: 0.79 },
         capabilities: ['text']
       },
+      // Google Gemini models via OpenRouter
       {
-        id: 'meta-llama/llama-3.1-405b-instruct',
-        name: 'Llama 3.1 405B Instruct',
-        provider: 'openrouter',
-        contextLength: 131072,
-        pricing: { input: 2.00, output: 2.00 },
-        capabilities: ['text']
-      },
-      // Google Gemini models
-      {
-        id: 'google/gemini-2.5-pro',
-        name: 'Gemini 2.5 Pro',
-        provider: 'openrouter',
-        contextLength: 2097152,
-        pricing: { input: 0.00, output: 0.00 }, // Pricing TBD
-        capabilities: ['text', 'vision', 'multimodal']
-      },
-      {
-        id: 'google/gemini-2.5-flash',
-        name: 'Gemini 2.5 Flash',
-        provider: 'openrouter',
-        contextLength: 1048576,
-        pricing: { input: 0.00, output: 0.00 }, // Pricing TBD
-        capabilities: ['text', 'vision', 'multimodal']
-      },
-      // Image generation
-      {
-        id: 'openai/dall-e-3',
-        name: 'DALL-E 3',
+        id: 'google/gemini-2.5-flash-image',
+        name: 'Gemini 2.5 Flash Image (Nano Banana)',
         provider: 'openrouter',
         contextLength: 4000,
-        pricing: { input: 0.04, output: 0.08 },
-        capabilities: ['text', 'image-generation']
-      },
-      {
-        id: 'stability-ai/stable-diffusion-xl-1024-v1-0',
-        name: 'Stable Diffusion XL',
-        provider: 'openrouter',
-        contextLength: 77,
-        pricing: { input: 0.018, output: 0.018 },
+        pricing: { input: 0.00, output: 0.00 }, // Pricing may vary
         capabilities: ['text', 'image-generation']
       }
     ];
@@ -404,12 +365,25 @@ class ModelService {
       return this.generateGroqTranscription(model, messages, options);
     }
 
+    // Check if this is an image generation request
+    const lastMessage = messages[messages.length - 1]?.content || '';
+    const isImageGeneration = /generate.*image|create.*image|draw.*image|make.*image|produce.*image|generate.*picture|create.*picture|draw.*picture|make.*picture|produce.*picture/i.test(lastMessage);
+
+    // For image generation with Gemini, use direct Gemini API
+    if (isImageGeneration && provider === 'gemini') {
+      return this.generateImagenResponse('gemini-2.0-flash-exp', messages, options);
+    }
+
+    // For Gemini provider, always use direct Gemini API (no OpenRouter fallback)
+    if (provider === 'gemini') {
+      return this.generateGeminiResponse(model, messages, options);
+    }
+
     // Check if the requested provider's API key is configured
     const hasApiKey = this.checkApiKeyConfigured(provider);
 
     // If API key is not configured for the requested provider, try OpenRouter as fallback
     if (!hasApiKey && provider !== 'ollama' && provider !== 'openrouter') {
-      console.log(`API key not configured for ${provider}, falling back to OpenRouter`);
       // Map model names to OpenRouter equivalents if possible
       const mappedModel = this.mapModelToOpenRouter(model, provider);
       return this.generateOpenRouterResponse(mappedModel, messages, options);
@@ -420,11 +394,13 @@ class ModelService {
         return this.generateOllamaResponse(model, messages, options);
       case 'openai':
         return this.generateOpenAIResponse(model, messages, options);
-      case 'gemini':
-        return this.generateGeminiResponse(model, messages, options);
       case 'groq':
         return this.generateGroqResponse(model, messages, options);
       case 'openrouter':
+        // For Gemini image generation via OpenRouter, use direct Gemini API instead
+        if (isImageGeneration && model.includes('gemini') && model.includes('image')) {
+          return this.generateImagenResponse(model, messages, options);
+        }
         return this.generateOpenRouterResponse(model, messages, options);
       default:
         throw new Error(`Unsupported provider: ${provider}`);
@@ -502,14 +478,22 @@ class ModelService {
       throw new Error('Gemini API key not configured');
     }
 
-    // Only support flash models directly, fallback others to OpenRouter
-    if (model !== 'gemini-1.5-flash' && model !== 'gemini-2.0-flash-exp') {
-      console.log(`Gemini model ${model} not supported directly, falling back to OpenRouter`);
-      const mappedModel = this.mapModelToOpenRouter(model, 'gemini');
-      return this.generateOpenRouterResponse(mappedModel, messages, options);
+    // Check if this is an image generation request
+    const lastMessage = messages[messages.length - 1]?.content || '';
+    const isImageGeneration = /generate.*image|create.*image|draw.*image|make.*image|produce.*image|generate.*picture|create.*picture|draw.*picture|make.*picture|produce.*picture/i.test(lastMessage);
+
+    // For image generation, use Imagen API instead of Gemini
+    if (isImageGeneration) {
+      if (model !== 'gemini-2.5-flash-image') {
+        throw new Error('Image generation is only supported with gemini-2.5-flash-image model');
+      }
+      return this.generateImagenResponse(model, messages, options);
     }
 
-    console.log(`Making direct Gemini API request for model: ${model}`);
+    // For text generation, only support 2.x flash models directly
+    if (model !== 'gemini-2.5-flash' && model !== 'gemini-2.5-flash-lite' && model !== 'gemini-2.0-flash' && model !== 'gemini-2.0-flash-lite') {
+      throw new Error(`Gemini model ${model} is not supported. Use gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash, or gemini-2.0-flash-lite for text generation, or gemini-2.5-flash-image for image generation.`);
+    }
 
     try {
       // Convert messages to Gemini format
@@ -518,7 +502,80 @@ class ModelService {
         parts: [{ text: msg.content }]
       }));
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?alt=sse&key=${apiKey}`;
+      // For image generation, use streaming API with proper configuration
+      if (isImageGeneration) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: geminiMessages,
+            generationConfig: {
+              responseModalities: ['TEXT', 'IMAGE'],
+              temperature: options.temperature || 0.8,
+              topP: options.topP || 0.7,
+              maxOutputTokens: options.maxTokens || 4096, // Higher limit for images
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+        }
+
+        return response;
+      } else {
+        // For text generation, use the regular API
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?alt=sse&key=${apiKey}`;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: geminiMessages,
+            generationConfig: {
+              temperature: options.temperature || 0.8,
+              topP: options.topP || 0.7,
+              maxOutputTokens: options.maxTokens || 1024,
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Direct Gemini API error: ${response.status} - ${errorText}`);
+          throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+        }
+
+        return response;
+      }
+    } catch (error) {
+      console.error('Error generating Gemini response:', error);
+      throw error;
+    }
+  }
+
+  private async generateImagenResponse(model: string, messages: any[], options: any = {}): Promise<any> {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('Gemini API key not configured');
+    }
+
+    // Use gemini-2.0-flash-exp as requested
+    const actualModel = 'gemini-2.0-flash-exp';
+
+    try {
+      // Extract the prompt from the last message
+      const prompt = messages[messages.length - 1]?.content || '';
+
+      // Use non-streaming API for reliable image generation
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${actualModel}:generateContent?key=${apiKey}`;
 
       const response = await fetch(url, {
         method: 'POST',
@@ -526,33 +583,95 @@ class ModelService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contents: geminiMessages,
+          contents: [{
+            role: "user",
+            parts: [{
+              text: prompt
+            }]
+          }],
           generationConfig: {
-            temperature: options.temperature || 0.8,
-            topP: options.topP || 0.7,
-            maxOutputTokens: options.maxTokens || 1024,
-          },
+            responseModalities: ["TEXT", "IMAGE"]
+          }
         }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`Direct Gemini API error: ${response.status} - ${errorText}`);
-
-        // Fallback to OpenRouter if direct API fails
-        console.log('Falling back to OpenRouter due to Gemini API error');
-        const mappedModel = this.mapModelToOpenRouter(model, 'gemini');
-        return this.generateOpenRouterResponse(mappedModel, messages, options);
+        throw new Error(`Gemini image generation error: ${response.status} - ${errorText}`);
       }
 
-      return response;
-    } catch (error) {
-      console.error('Error generating Gemini response:', error);
+      // Parse the JSON response
+      const result = await response.json();
 
-      // Fallback to OpenRouter on any error
-      console.log('Falling back to OpenRouter due to Gemini API error');
-      const mappedModel = this.mapModelToOpenRouter(model, 'gemini');
-      return this.generateOpenRouterResponse(mappedModel, messages, options);
+      // Check if we have image data in the response and save it to a file
+      const candidates = result.candidates;
+      if (candidates && candidates[0] && candidates[0].content && candidates[0].content.parts) {
+        const parts = candidates[0].content.parts;
+        for (const part of parts) {
+          if (part.inlineData) {
+
+            // Save the image to public/uploads directory
+            const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.png`;
+            const filepath = path.join(process.cwd(), 'public', 'uploads', filename);
+
+            // Ensure the directory exists
+            await fs.mkdir(path.dirname(filepath), { recursive: true });
+
+            // Decode base64 and save
+            const imageBuffer = Buffer.from(part.inlineData.data, 'base64');
+            await fs.writeFile(filepath, imageBuffer);
+
+            // Replace inlineData with text containing image URL
+            part.text = `Here's the generated image:\n\n![Generated Image](/uploads/${filename})\n\n`;
+            delete part.inlineData;
+          } else if (part.text) {
+          } else {
+          }
+        }
+      }
+
+      // Return the processed text content directly
+      let finalText = '';
+      if (candidates && candidates[0] && candidates[0].content && candidates[0].content.parts) {
+        for (const part of candidates[0].content.parts) {
+          if (part.text) {
+            finalText += part.text;
+          }
+        }
+      }
+
+      console.log('🖼️ Image generation response text:', finalText);
+      
+      // Return a simple streaming response that includes the markdown image
+      let readCount = 0;
+      return {
+        body: {
+          getReader: () => ({
+            read: async () => {
+              if (readCount === 0) {
+                readCount++;
+                return {
+                  done: false,
+                  value: new TextEncoder().encode(`data: ${JSON.stringify({
+                    candidates: [{
+                      content: {
+                        parts: [{ text: finalText }]
+                      }
+                    }]
+                  })}\n\n`)
+                };
+              } else {
+                return {
+                  done: true,
+                  value: undefined
+                };
+              }
+            }
+          })
+        }
+      };
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -656,41 +775,155 @@ class ModelService {
       throw new Error('OpenRouter API key not configured');
     }
 
-    console.log(`Making OpenRouter API request for model: ${model}`);
+    // Check if this is an image generation request
+    const lastMessage = messages[messages.length - 1]?.content || '';
+    const isImageGeneration = /generate.*image|create.*image|draw.*image|make.*image|produce.*image|generate.*picture|create.*picture|draw.*picture|make.*picture|produce.*picture/i.test(lastMessage) && model.includes('gemini') && model.includes('image');
 
     try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-          'X-Title': 'LoRA The Second Brain',
-        },
-        body: JSON.stringify({
-          model,
-          messages: messages.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          })),
-          temperature: options.temperature || 0.8,
-          top_p: options.topP || 0.7,
-          max_tokens: options.maxTokens || 1024,
-          stream: true,
-        }),
-      });
+      if (isImageGeneration) {
+        // For image generation, use non-streaming request to get the complete response
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+            'X-Title': 'LoRA The Second Brain',
+          },
+          body: JSON.stringify({
+            model,
+            messages: messages.map(msg => ({
+              role: msg.role,
+              content: msg.content
+            })),
+            temperature: options.temperature || 0.8,
+            max_tokens: options.maxTokens || 1024,
+            stream: false, // Disable streaming for image generation
+          }),
+        });
 
-      console.log(`OpenRouter API response status: ${response.status}, statusText: ${response.statusText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`OpenRouter image generation error: ${response.statusText} - ${errorText}`);
+        }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`OpenRouter API error response: ${errorText}`);
-        throw new Error(`OpenRouter API error: ${response.statusText} - ${errorText}`);
+        const result = await response.json();
+
+        // Process OpenRouter image generation response
+        if (result.choices && result.choices.length > 0) {
+          const choice = result.choices[0];
+          const message = choice.message;
+
+          // Handle different content formats from OpenRouter
+          let content = '';
+          if (typeof message?.content === 'string') {
+            content = message.content;
+          } else if (message?.content && Array.isArray(message.content)) {
+            // Handle array of content parts (like Gemini format)
+            for (const part of message.content) {
+              if (typeof part === 'string') {
+                content += part;
+              } else if (part.text) {
+                content += part.text;
+              } else if (part.image_url || part.imageUrl) {
+                const url = part.image_url || part.imageUrl;
+                if (url.url) {
+                  content += `\n\n![Generated Image](${url.url})\n\n`;
+                }
+              } else if (part.inlineData || part.inline_data) {
+                const data = part.inlineData || part.inline_data;
+                if (data.data && (data.mimeType || data.mime_type)) {
+                  const mimeType = data.mimeType || data.mime_type || 'image/png';
+                  content += `\n\n![Generated Image](data:${mimeType};base64,${data.data})\n\n`;
+                }
+              }
+            }
+          } else if (message?.content && typeof message.content === 'object') {
+            // Handle object format
+            if (message.content.parts) {
+              for (const part of message.content.parts) {
+                if (part.text) {
+                  content += part.text;
+                } else if (part.inlineData || part.inline_data) {
+                  const data = part.inlineData || part.inline_data;
+                  if (data.data && (data.mimeType || data.mime_type)) {
+                    const mimeType = data.mimeType || data.mime_type || 'image/png';
+                    content += `\n\n![Generated Image](data:${mimeType};base64,${data.data})\n\n`;
+                  }
+                }
+              }
+            } else {
+              // Handle if content is directly the inlineData object
+              const data = message.content.inlineData || message.content.inline_data;
+              if (data && data.data && (data.mimeType || data.mime_type)) {
+                const mimeType = data.mimeType || data.mime_type || 'image/png';
+                content = `![Generated Image](data:${mimeType};base64,${data.data})`;
+              } else if (message.content.text && message.content.image) {
+                // Handle OpenAI-style content with text and image
+                content = message.content.text;
+                if (message.content.image.url) {
+                  content += `\n\n![Generated Image](${message.content.image.url})\n\n`;
+                }
+              }
+            }
+          }
+
+          // Check if message has separate image field
+          if (message.image) {
+            if (message.image.url) {
+              content += `\n\n![Generated Image](${message.image.url})\n\n`;
+            } else if (message.image.data && message.image.mimeType) {
+              content += `\n\n![Generated Image](data:${message.image.mimeType};base64,${message.image.data})\n\n`;
+            }
+          }
+          // Check if we actually have image data
+          const hasImageData = content.includes('data:image') || content.includes('![Generated Image]') || content.includes('http') && content.includes('image');
+
+          if (!hasImageData) {
+            // OpenRouter didn't return actual image data, fall back to direct Gemini API
+            return this.generateImagenResponse(model, messages, options);
+          }
+
+          // Return plain object with processed content
+          return {
+            type: 'openrouter-image',
+            content: content,
+            hasImageData: true
+          };
+        }
+
+        throw new Error('No content in OpenRouter image generation response');
+      } else {
+        // For regular text generation, use streaming
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+            'X-Title': 'LoRA The Second Brain',
+          },
+          body: JSON.stringify({
+            model,
+            messages: messages.map(msg => ({
+              role: msg.role,
+              content: msg.content
+            })),
+            temperature: options.temperature || 0.8,
+            top_p: options.topP || 0.7,
+            max_tokens: options.maxTokens || 1024,
+            stream: true,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`OpenRouter API error: ${response.statusText} - ${errorText}`);
+        }
+
+        return response;
       }
-
-      return response;
     } catch (error) {
-      console.error('Error generating OpenRouter response:', error);
       throw error;
     }
   }
@@ -818,7 +1051,6 @@ class ModelService {
 
   // Map model names from other providers to OpenRouter equivalents
   private mapModelToOpenRouter(model: string, originalProvider: ProviderType): string {
-    console.log(`Mapping model ${model} from ${originalProvider} to OpenRouter equivalent`);
 
     // For Groq models, try to find equivalent models on OpenRouter
     if (originalProvider === 'groq') {
@@ -844,18 +1076,7 @@ class ModelService {
       if (model === 'gpt-3.5-turbo') return 'openai/gpt-3.5-turbo';
     }
 
-    // For Gemini models, use the OpenRouter version (used as fallback)
-    if (originalProvider === 'gemini') {
-      if (model === 'gemini-1.5-pro') {
-        return 'openai/gpt-4o'; // Pro model falls back to GPT-4o
-      }
-      if (model === 'gemini-1.5-flash' || model === 'gemini-2.0-flash-exp') {
-        return 'openai/gpt-4o-mini'; // Flash models fallback
-      }
-    }
-
     // Default fallback to GPT-4o
-    console.log(`Using default fallback: openai/gpt-4o`);
     return 'openai/gpt-4o';
   }
 }

@@ -279,6 +279,7 @@ export async function continueConversation(
     try {
       let acc = "";
 
+      // Handle Ollama streaming response
       if (provider === 'ollama') {
         // Handle Ollama streaming response
         for await (const chunk of response) {
@@ -288,7 +289,7 @@ export async function continueConversation(
           stream.update(acc);
         }
       } else if (provider === 'gemini') {
-        // Handle Gemini streaming response
+        // Handle Gemini streaming response (supports both text and images)
         const reader = response.body?.getReader();
         if (!reader) {
           throw new Error('No response body reader available');
@@ -312,11 +313,17 @@ export async function continueConversation(
 
               try {
                 const parsed = JSON.parse(data);
-                // Gemini format: candidates[0].content.parts[0].text
-                const content = parsed.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                if (content) {
-                  acc += content;
-                  stream.update(acc);
+                const parts = parsed.candidates?.[0]?.content?.parts;
+
+                if (parts) {
+                  for (const part of parts) {
+                    // Handle text content (now includes image URLs)
+                    if (part.text) {
+                      console.log('📥 Gemini part.text:', part.text.substring(0, 200));
+                      acc += part.text;
+                      stream.update(acc);
+                    }
+                  }
                 }
               } catch (e) {
                 // Skip invalid JSON
@@ -363,6 +370,13 @@ export async function continueConversation(
               }
             }
           }
+        }
+
+        // Check for image data in the accumulated text (for OpenRouter image generation)
+        const imageMatch = acc.match(/data:image\/[^;]+;base64,([^"'\s]+)/);
+        if (imageMatch) {
+          // If we found image data in the text, keep it as is (it will be displayed as markdown)
+          console.log('Found image data in OpenAI-compatible response');
         }
       }
 

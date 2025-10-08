@@ -176,6 +176,11 @@ export default function Chat() {
   const formatMessageWithImages = (content: string): string => {
     if (!content) return content;
 
+    // For Gemini responses, the content already has proper markdown images
+    if (content.includes('![Generated Image](')) {
+      return content;
+    }
+
     // Regular expression to match image URLs
     const imageUrlRegex = /(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff|avif)(\?[^\s]*)?)/gi;
 
@@ -189,7 +194,7 @@ export default function Chat() {
 
     // First, check if there are already markdown images
     const existingImages = content.match(markdownImageRegex);
-    if (existingImages) {
+    if (existingImages && existingImages.length > 0) {
       return content; // Don't process if already formatted
     }
 
