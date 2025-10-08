@@ -657,8 +657,6 @@ class ModelService {
             // Replace inlineData with text containing image URL
             part.text = `Here's the generated image:\n\n![Generated Image](/uploads/${filename})\n\n`;
             delete part.inlineData;
-          } else if (part.text) {
-          } else {
           }
         }
       }
