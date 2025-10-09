@@ -8,7 +8,7 @@ import { Upload, Brain, Search, BookOpen, Clock, X, Mic } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import FilePreviewModal from "./file-preview-modal";
 
-type AIMode = "think-longer" | "deep-research" | "web-search" | "study";
+type AIMode = "think-longer" | "deep-research" | "web-search" | "study" | "sarcastic";
 
 type ChatInputProps = {
   input: string;
@@ -16,6 +16,7 @@ type ChatInputProps = {
   handleSubmit: (payload: { input: string; model: string; fileIds?: string[]; files?: { id: string; name: string; size?: number }[]; audioFile?: File; mode?: AIMode }) => Promise<void>;
   model: string;
   handleModelChange: (model: string, provider?: ProviderType) => void;
+  isLoading?: boolean;
 };
 
 export default function ChatInput({
@@ -24,10 +25,10 @@ export default function ChatInput({
   handleSubmit,
   model,
   handleModelChange,
+  isLoading = false,
 }: ChatInputProps) {
   const [selectedMode, setSelectedMode] = useState<AIMode | null>(null);
   const [showModeSelector, setShowModeSelector] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size?: number }>>([]);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
@@ -38,6 +39,7 @@ export default function ChatInput({
     { id: "deep-research" as AIMode, label: "Deep Research", icon: Search, shortcut: "/research" },
     { id: "web-search" as AIMode, label: "Web Search", icon: Search, shortcut: "/search" },
     { id: "study" as AIMode, label: "Study Mode", icon: BookOpen, shortcut: "/study" },
+    { id: "sarcastic" as AIMode, label: "Sarcastic", icon: Brain, shortcut: "/sarcastic" },
   ], []);
 
   // Detect slash commands - use useCallback to stabilize the function
@@ -144,11 +146,10 @@ export default function ChatInput({
         alert("Please upload an audio file for transcription");
         return;
       }
-    } else if (input.trim().length === 0 || isSubmitting || !model) {
+    } else if (input.trim().length === 0 || isLoading || !model) {
       return;
     }
 
-    setIsSubmitting(true);
     try {
       await handleSubmit({
         input,
@@ -162,8 +163,9 @@ export default function ChatInput({
       setShowModeSelector(false);
       setAudioFile(null); // Clear audio file after submission
       // optionally: setAttachments([]);
-    } finally {
-      setIsSubmitting(false);
+    } catch (error) {
+      // Handle error if needed
+      console.error("Submit error:", error);
     }
   };
 
@@ -172,7 +174,7 @@ export default function ChatInput({
       e.key === "Enter" &&
       !e.shiftKey &&
       !e.nativeEvent.isComposing &&
-      !isSubmitting
+      !isLoading
     ) {
       e.preventDefault();
       if (isTranscriptionModel) {
@@ -211,7 +213,7 @@ export default function ChatInput({
                   size="sm"
                   onClick={clearMode}
                   className="h-4 w-4 p-0 ml-1 hover:bg-muted-foreground/20"
-                  disabled={isSubmitting}
+                  disabled={isLoading}
                 >
                   <X size={10} />
                 </Button>
@@ -227,7 +229,7 @@ export default function ChatInput({
               size="sm"
               onClick={() => setShowModeSelector(!showModeSelector)}
               className="absolute left-2 top-1/2 -translate-y-1/2 z-10 h-6 w-6 p-0 hover:bg-muted"
-              disabled={isSubmitting}
+              disabled={isLoading}
             >
               <Brain size={14} className={selectedMode ? "text-primary" : "text-muted-foreground"} />
             </Button>
@@ -241,7 +243,7 @@ export default function ChatInput({
               placeholder={getPlaceholder()}
               spellCheck={false}
               value={input}
-              disabled={isSubmitting}
+              disabled={isLoading}
               className="focus-visible:ring-nvidia min-h-10 w-full resize-none rounded-lg border border-input bg-background pb-1 pl-10 pr-20 pt-2 text-sm shadow-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
@@ -257,7 +259,7 @@ export default function ChatInput({
                 size="sm"
                 onClick={handleAudioUpload}
                 className="absolute right-12 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-muted"
-                disabled={isSubmitting}
+                disabled={isLoading}
                 title="Upload audio file"
               >
                 <Mic size={14} />
@@ -269,7 +271,7 @@ export default function ChatInput({
                 size="sm"
                 onClick={handleFileUpload}
                 className="absolute right-12 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-muted"
-                disabled={isSubmitting}
+                disabled={isLoading}
                 title="Upload files"
               >
                 <Upload size={14} />
@@ -286,7 +288,7 @@ export default function ChatInput({
                 (!isTranscriptionModel && input.length === 0) ||
                 (isTranscriptionModel && !audioFile) ||
                 !model ||
-                isSubmitting
+                isLoading
               }>
               <AiOutlineEnter size={16} />
             </Button>
@@ -355,7 +357,7 @@ export default function ChatInput({
                       size="sm"
                       onClick={() => handleModeSelect(mode.id)}
                       className="flex items-center gap-2 justify-start text-xs h-9 rounded-xl hover:bg-muted/80 transition-colors"
-                      disabled={isSubmitting}
+                      disabled={isLoading}
                     >
                       <Icon size={12} />
                       <span>{mode.label}</span>

@@ -89,7 +89,7 @@ export async function continueConversation(
   opts?: {
     fileIds?: string[];
     conversationHistory?: string;
-    mode?: "think-longer" | "deep-research" | "web-search" | "study";
+    mode?: "think-longer" | "deep-research" | "web-search" | "study" | "sarcastic";
   }
 ) {
   // const ip = headers().get("x-forwarded-for") ?? "unknown";
@@ -199,6 +199,13 @@ export async function continueConversation(
         modeTemperature = 0.7;
         modeMaxTokens = 2048;
         modeInstructions = 'Explain concepts step-by-step. Use examples and analogies. Break down complex ideas. Focus on clarity and understanding.';
+        break;
+
+      case 'sarcastic':
+        modePrompt = 'You are a sarcastic speaking LoRA AI. Respond to ALL user messages with heavy sarcasm, irony, and witty commentary. Use exaggerated expressions, clever wordplay, and humorous jabs while still providing accurate information. Be entertaining, cheeky, and never take anything seriously - always respond with a sarcastic twist. Keep it light-hearted but make every response dripping with sarcasm.';
+        modeTemperature = 0.9; // Higher temperature for more creative responses
+        modeMaxTokens = 1536;
+        modeInstructions = 'EVERY response must be sarcastic. Use phrases like "oh sure", "as if", "wow, groundbreaking", "how original", etc. Be witty and clever. Maintain accuracy but deliver it with heavy sarcasm and irony.';
         break;
     }
   }
@@ -475,4 +482,111 @@ async function handleTextToSpeech(text: string, voice: string = 'Fritz-PlayAI', 
 // Export handleTextToSpeech as a server action
 export async function handleTextToSpeechAction(text: string, voice?: string, responseFormat?: string) {
   return await handleTextToSpeech(text, voice, responseFormat);
+}
+
+// Handle ElevenLabs text-to-speech requests
+async function handleElevenLabsTextToSpeech(text: string, voiceId: string = 'JkpEM0J2p7DL32VXnieS') {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  console.log('ElevenLabs API Key present:', !!apiKey, 'Length:', apiKey?.length);
+  if (!apiKey) {
+    throw new Error('ElevenLabs API key not configured');
+  }
+
+  try {
+    console.log('ElevenLabs TTS Request:', { textLength: text.length, voiceId });
+
+    // Analyze text for emotional cues to adjust voice settings
+    const lowerText = text.toLowerCase();
+    let style = 0.3; // Default style
+    let stability = 0.5; // Default stability (must be 0.0, 0.5, or 1.0)
+    let similarity_boost = 0.8; // Default similarity
+    let speed = 1.0; // Default speed
+
+    // Detect emotional patterns and adjust settings accordingly
+    if (lowerText.includes('!') && lowerText.includes('?') || lowerText.includes('wow') || lowerText.includes('amazing') || lowerText.includes('incredible')) {
+      // Excited/enthusiastic
+      style = 0.8;
+      stability = 0.0; // Creative
+      speed = 1.1;
+    } else if (lowerText.includes('whisper') || lowerText.includes('quiet') || lowerText.includes('softly') || lowerText.includes('secret')) {
+      // Whispering/soft
+      style = 0.1;
+      stability = 1.0; // Robust
+      speed = 0.9;
+    } else if (lowerText.includes('angry') || lowerText.includes('mad') || lowerText.includes('furious') || lowerText.includes('damn') || lowerText.includes('shit')) {
+      // Angry/intense
+      style = 0.9;
+      stability = 0.0; // Creative
+      speed = 1.2;
+    } else if (lowerText.includes('laugh') || lowerText.includes('haha') || lowerText.includes('lol') || lowerText.includes('funny') || lowerText.includes('joke')) {
+      // Laughing/playful
+      style = 0.7;
+      stability = 0.5; // Natural
+      speed = 1.0;
+    } else if (lowerText.includes('sad') || lowerText.includes('sorry') || lowerText.includes('unfortunately') || lowerText.includes('regret')) {
+      // Sad/serious
+      style = 0.2;
+      stability = 1.0; // Robust
+      speed = 0.95;
+    } else if (lowerText.includes('?') && lowerText.split('?').length > 2) {
+      // Questioning/curious
+      style = 0.6;
+      stability = 0.5; // Natural
+      speed = 1.05;
+    } else if (lowerText.includes('think') || lowerText.includes('consider') || lowerText.includes('analyze')) {
+      // Thinking/contemplative
+      style = 0.4;
+      stability = 0.5; // Natural
+      speed = 0.9;
+    }
+
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'audio/mpeg',
+        'Content-Type': 'application/json',
+        'xi-api-key': apiKey
+      },
+      body: JSON.stringify({
+        text: text,
+        model_id: 'eleven_v3',
+        voice_settings: {
+          stability: stability,
+          similarity_boost: similarity_boost,
+          style: style,
+          use_speaker_boost: true,
+          speed: speed
+        }
+      })
+    });
+
+    console.log('ElevenLabs TTS API Response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('ElevenLabs TTS API Error:', errorText);
+      throw new Error(`ElevenLabs TTS API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    // Convert audio data to base64 for serialization
+    const audioBuffer = await response.arrayBuffer();
+    console.log('ElevenLabs TTS Audio buffer size:', audioBuffer.byteLength);
+
+    const base64Audio = Buffer.from(audioBuffer).toString('base64');
+    console.log('ElevenLabs TTS Base64 length:', base64Audio.length);
+
+    return {
+      audioData: base64Audio,
+      contentType: 'audio/mpeg',
+      fileName: `elevenlabs-tts-${Date.now()}.mp3`,
+    };
+  } catch (error) {
+    console.error('Error generating ElevenLabs TTS:', error);
+    throw error;
+  }
+}
+
+// Export handleElevenLabsTextToSpeech as a server action
+export async function handleElevenLabsTextToSpeechAction(text: string, voiceId?: string) {
+  return await handleElevenLabsTextToSpeech(text, voiceId);
 }
