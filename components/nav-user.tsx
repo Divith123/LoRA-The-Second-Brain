@@ -33,7 +33,9 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useUser } from "@/components/user-context";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { DatabaseService } from "@/lib/database";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,15 +45,38 @@ import { SettingsModal } from "@/components/settings-modal";
 export function NavUser() {
   const { users, currentUser, logout, switchUser } = useUser();
   const { isMobile } = useSidebar();
+  const router = useRouter();
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [password, setPassword] = useState("");
   const [isSwitching, setIsSwitching] = useState(false);
-  // ✨ FIX: Declare the 'error' state variable and its setter function
   const [error, setError] = useState("");
+  const [userAvatars, setUserAvatars] = useState<Record<string, string | null>>({});
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
+  // Load current user's avatar
+  useEffect(() => {
+    const loadUserAvatar = async () => {
+      if (!currentUser) return;
+      
+      try {
+        const avatar = await DatabaseService.getUserAvatar(currentUser.id, currentUser.password);
+        setUserAvatars(prev => ({ ...prev, [currentUser.id]: avatar }));
+      } catch (error) {
+        console.error('Error loading avatar:', error);
+        setUserAvatars(prev => ({ ...prev, [currentUser.id]: null }));
+      }
+    };
+
+    loadUserAvatar();
+  }, [currentUser]);
+
   if (!currentUser) return null;
+
+  const handleAvatarClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent dropdown from opening
+    router.push('/profile');
+  };
 
   const handleLogout = () => {
     logout();
@@ -98,12 +123,18 @@ export function NavUser() {
                 size="lg"
                 className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
               >
-                <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src="/avatars/user.jpg" alt={currentUser.name} />
-                  <AvatarFallback className="rounded-lg bg-primary/10 text-primary font-semibold">
-                    {currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
+                <div 
+                  className="cursor-pointer" 
+                  onClick={handleAvatarClick}
+                  title="Go to Profile"
+                >
+                  <Avatar className="h-8 w-8 rounded-lg">
+                    <AvatarImage src={userAvatars[currentUser.id] || undefined} alt={currentUser.name} />
+                    <AvatarFallback className="rounded-lg bg-primary/10 text-primary font-semibold">
+                      {currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">{currentUser.name}</span>
                   <span className="truncate text-xs text-muted-foreground">{currentUser.email}</span>
@@ -120,7 +151,7 @@ export function NavUser() {
               <DropdownMenuLabel className="p-0 font-normal">
                 <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                   <Avatar className="h-8 w-8 rounded-lg">
-                    <AvatarImage src="/avatars/user.jpg" alt={currentUser.name} />
+                    <AvatarImage src={userAvatars[currentUser.id] || undefined} alt={currentUser.name} />
                     <AvatarFallback className="rounded-lg bg-primary/10 text-primary font-semibold">
                       {currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                     </AvatarFallback>
@@ -146,6 +177,7 @@ export function NavUser() {
                         className="flex items-center gap-2"
                       >
                         <Avatar className="h-6 w-6">
+                          <AvatarImage src={userAvatars[user.id] || undefined} alt={user.name} />
                           <AvatarFallback className="text-xs bg-muted">
                             {user.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                           </AvatarFallback>

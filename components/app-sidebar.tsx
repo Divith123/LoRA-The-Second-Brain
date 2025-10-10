@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { GalleryVerticalEnd, AudioWaveform } from "lucide-react";
+import { AudioWaveform } from "lucide-react";
 
 import { NavUser } from "@/components/nav-user";
 import { TeamSwitcher } from "@/components/team-switcher";
@@ -31,7 +31,6 @@ const data = {
   teams: [
     {
       name: "LoRA - The Second Brain",
-      logo: GalleryVerticalEnd,
       plan: "",
     },
     {
@@ -49,8 +48,15 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onSeeAllChats?: (type: 'pinned' | 'recent') => void;
   onSeeAllFiles?: () => void;
   onCreateFolder?: () => void;
+  onSelectFile?: (fileId: string) => void;
+  currentFileId?: string | null;
+  currentFolderId?: string | null;
+  onSelectFolder?: (folderId: string | null) => void;
   onSeeAllProjects?: () => void;
   onCreateProject?: () => void;
+  onSelectProject?: (projectId: string) => void;
+  currentProjectId?: string | null;
+  onAddToProject?: (conversationId: string) => void;
 }
 
 export function AppSidebar({
@@ -60,8 +66,15 @@ export function AppSidebar({
   onSeeAllChats = () => {},
   onSeeAllFiles = () => {},
   onCreateFolder = () => {},
+  onSelectFile = () => {},
+  currentFileId = null,
+  currentFolderId = null,
+  onSelectFolder = () => {},
   onSeeAllProjects = () => {},
   onCreateProject = () => {},
+  onSelectProject = () => {},
+  currentProjectId = null,
+  onAddToProject = () => {},
   ...props
 }: AppSidebarProps) {
   return (
@@ -80,12 +93,17 @@ export function AppSidebar({
         <SidebarFiles
           onSeeAll={onSeeAllFiles}
           onCreateFolder={onCreateFolder}
+          onSelectFile={onSelectFile}
+          currentFileId={currentFileId}
+          currentFolderId={currentFolderId}
+          onSelectFolder={onSelectFolder}
         />
 
         {/* Projects */}
         <SidebarProjects
           onSeeAll={onSeeAllProjects}
           onCreateProject={onCreateProject}
+          onSelectProject={onSelectProject}
         />
 
         {/* Pinned Chats */}
@@ -93,6 +111,7 @@ export function AppSidebar({
           onSelectConversation={onSelectConversation}
           currentConversationId={currentConversationId}
           onSeeAll={onSeeAllChats}
+          onAddToProject={onAddToProject}
         />
 
         {/* Recent Chats */}
@@ -100,6 +119,7 @@ export function AppSidebar({
           onSelectConversation={onSelectConversation}
           currentConversationId={currentConversationId}
           onSeeAll={onSeeAllChats}
+          onAddToProject={onAddToProject}
         />
       </SidebarContent>
       <SidebarFooter>

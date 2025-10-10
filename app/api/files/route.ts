@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import { processUploadedFile, type UploadedFileMeta as Meta } from "@/lib/file-processing";
 import { indexDocument } from "@/lib/rag-store";
+import { cookies } from "next/headers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +33,16 @@ export type UploadedFileMeta = {
 // POST /api/files  (multipart/form-data; key = "files")
 export async function POST(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const userId = searchParams.get('userId');
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "User ID is required" },
+        { status: 400 }
+      );
+    }
+
     await ensureDir();
     const form = await req.formData();
 
@@ -56,6 +67,10 @@ export async function POST(req: NextRequest) {
       // write to disk
       const buf = Buffer.from(await f.arrayBuffer());
       await fs.writeFile(abs, buf);
+
+      // Note: DatabaseService uses IndexedDB (browser-only), so we can't store metadata server-side
+      // File metadata should be managed client-side only
+      // TODO: Implement proper server-side file metadata storage if needed
 
       // ---- NEW: extract & chunk immediately
       const meta: Meta = {
@@ -84,19 +99,27 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE /api/files?id=<tempId>&name=<serverName>
-// (Convenience cleanup until we persist in DB)
-export async function DELETE(req: NextRequest) {
+// GET /api/files - List uploaded files for a specific user
+export async function GET(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const serverName = url.searchParams.get("name");
-    if (!serverName) return NextResponse.json({ error: "name required" }, { status: 400 });
+    const { searchParams } = new URL(req.url);
+    const userId = searchParams.get('userId');
 
-    const abs = path.join(UPLOAD_DIR, path.basename(serverName));
-    await fs.unlink(abs).catch(() => {});
-    return NextResponse.json({ ok: true });
+    if (!userId) {
+      return NextResponse.json(
+        { error: "User ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Since DatabaseService uses IndexedDB (browser-only), we can't access it from server-side API routes
+    // For now, return empty array. File metadata should be managed client-side only.
+    // TODO: Implement proper server-side file metadata storage if needed
+    const files: any[] = [];
+
+    return NextResponse.json({ files }, { status: 200 });
   } catch (err) {
-    console.error("Delete error:", err);
-    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
+    console.error("List files error:", err);
+    return NextResponse.json({ error: "Failed to list files" }, { status: 500 });
   }
 }

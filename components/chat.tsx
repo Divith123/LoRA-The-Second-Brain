@@ -5,8 +5,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { type CoreMessage } from "ai";
 import ChatInput from "./chat-input";
 import { readStreamableValue } from "ai/rsc";
-import { FaUser } from "react-icons/fa6";
-import { FaBrain } from "react-icons/fa6";
 import { continueConversation, handleTranscriptionAction, handleTextToSpeechAction, handleElevenLabsTextToSpeechAction } from "../app/actions";
 import { DatabaseService, Conversation } from "@/lib/database";
 import { EncryptedConversationStorage } from "@/lib/encrypted-conversation-storage";
@@ -18,8 +16,8 @@ import { useConversations, useCreateConversation, useUpdateConversation } from "
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useConversation } from "./conversation-context";
-import { useModel } from "./app-content";
-import { Pin, MoreVertical, Volume2, Clock, Search, BookOpen, ChevronDown } from "lucide-react";
+import { useModel, useFilePreview } from "./app-content";
+import { Pin, MoreVertical, Volume2, Clock, Search, BookOpen, ChevronDown, Pause, Mic, Globe } from "lucide-react";
 import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
@@ -29,13 +27,15 @@ import jsPDF from "jspdf";
 import { ProviderType } from "@/lib/model-types";
 import { Switch } from "./ui/switch";
 import { Label } from "./ui/label";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import VoiceModal from "./voice-modal";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 // Extended message type with additional properties
 type ExtendedMessage = CoreMessage & {
-  mode?: "think-longer" | "deep-research" | "web-search" | "study" | "sarcastic";
+  mode?: "think-longer" | "deep-research" | "web-search" | "study";
   files?: { id: string; name: string; size?: number }[];
   knowledgeSources?: {
     used: boolean;
@@ -50,7 +50,8 @@ type ExtendedMessage = CoreMessage & {
 export default function Chat() {
   const { currentUser } = useUser();
   const { currentConversationId, setCurrentConversationId } = useConversation();
-  const { currentModel, currentProvider, onModelChange } = useModel();
+  const { currentModel, currentProvider, onModelChange, onOpenFilesDialog } = useModel();
+  const { currentFileId } = useFilePreview();
   const { data: conversations = [], isLoading: isLoadingConversations } = useConversations(currentUser?.id || '');
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -59,22 +60,28 @@ export default function Chat() {
   const [messages, setMessages] = useState<ExtendedMessage[]>([]);
   const [input, setInput] = useState("");
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const streamingContentRef = useRef<string>("");
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [knowledgeSources, setKnowledgeSources] = useState<Array<{title: string; date: string; content: string}>>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlayingTTS, setIsPlayingTTS] = useState(false);
+  const [currentlyPlayingMessageId, setCurrentlyPlayingMessageId] = useState<string | null>(null);
+  const [isAudioPaused, setIsAudioPaused] = useState(false);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const [thinkingStates, setThinkingStates] = useState<Record<string, boolean>>({});
   const [knowledgeStates, setKnowledgeStates] = useState<Record<string, boolean>>({});
-  const [isSarcasticMode, setIsSarcasticMode] = useState(false);
   // Track which messages are currently being pre-generated to prevent duplicates
   const [preGeneratingMessages, setPreGeneratingMessages] = useState<Set<string>>(new Set());
   // Store pre-generated audio data with localStorage persistence
   const [preGeneratedAudio, setPreGeneratedAudio] = useState<Record<string, { audioData: string; contentType: string; audioUrl?: string }>>({});
   // Loading state for input component
   const [isLoading, setIsLoading] = useState(false);
+  // User avatar state
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  // Voice modal state
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
 
   // Helper function to update pre-generated audio with localStorage persistence
   const updatePreGeneratedAudio = useCallback((updater: (prev: Record<string, { audioData: string; contentType: string; audioUrl?: string }>) => Record<string, { audioData: string; contentType: string; audioUrl?: string }>) => {
@@ -350,7 +357,7 @@ export default function Chat() {
 
       // Try ElevenLabs TTS first (primary)
       try {
-        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(cleanText, 'JkpEM0J2p7DL32VXnieS');
+        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(cleanText, 'JkpEM0J2p7DL32VXnieS', currentUser?.id);
 
         // Convert base64 to blob and create URL for instant playback
         const audioData = Uint8Array.from(atob(elevenLabsResult.audioData), c => c.charCodeAt(0));
@@ -372,7 +379,15 @@ export default function Chat() {
 
         try {
           // Try Groq TTS API
-          const result = await handleTextToSpeechAction(cleanText, 'Fritz-PlayAI', 'wav');
+          // Strip markdown formatting for better TTS (same as above)
+          const filteredText = cleanText
+            .replace(/<think>[\s\S]*?<\/think>/gi, '') // Remove <think> blocks
+            .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '') // Remove <thinking> blocks
+            .replace(/^Thinking:[\s\S]*?(?=\n\n|\n[A-Z]|$)/im, '') // Remove "Thinking:" sections
+            .replace(/^Let me think[\s\S]*?(?=\n\n|\n[A-Z]|$)/im, '') // Remove "Let me think" sections
+            .trim();
+
+          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', currentUser?.id);
 
           // Convert base64 to blob and create URL for instant playback
           const audioData = Uint8Array.from(atob(result.audioData), c => c.charCodeAt(0));
@@ -406,11 +421,38 @@ export default function Chat() {
     }
   }, [preGeneratedAudio, preGeneratingMessages]);
 
-  // TTS functionality with instant playback from pre-generated audio
-  const handleTextToSpeech = useCallback(async (text: string, messageId?: string) => {
-    // Strict guard: prevent any multiple calls
-    if (isPlayingTTS || currentAudioRef.current) {
-      console.log('TTS already in progress, ignoring request');
+  // TTS functionality with instant playback from pre-generated audio and pause/resume support
+  const handleTextToSpeech = useCallback(async (text: string, messageId?: string, action?: 'play' | 'pause' | 'resume') => {
+    // If this is a pause/resume action for the currently playing message
+    if (action === 'pause' && currentlyPlayingMessageId === messageId && currentAudioRef.current && !currentAudioRef.current.paused) {
+      console.log('Pausing audio for message:', messageId);
+      currentAudioRef.current.pause();
+      setIsAudioPaused(true);
+      return;
+    }
+
+    if (action === 'resume' && currentlyPlayingMessageId === messageId && currentAudioRef.current && currentAudioRef.current.paused) {
+      console.log('Resuming audio for message:', messageId);
+      currentAudioRef.current.play().catch(error => {
+        console.error('Error resuming audio:', error);
+      });
+      setIsAudioPaused(false);
+      return;
+    }
+
+    // If trying to play a different message while another is playing, stop the current one
+    if (currentlyPlayingMessageId && currentlyPlayingMessageId !== messageId && currentAudioRef.current) {
+      console.log('Stopping current audio for different message');
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+      setIsPlayingTTS(false);
+      setCurrentlyPlayingMessageId(null);
+      setIsAudioPaused(false);
+    }
+
+    // If already playing this message, do nothing (shouldn't happen with new logic)
+    if (currentlyPlayingMessageId === messageId && isPlayingTTS && !isAudioPaused) {
+      console.log('Already playing this message, ignoring request');
       return;
     }
 
@@ -418,6 +460,8 @@ export default function Chat() {
 
     try {
       setIsPlayingTTS(true);
+      setCurrentlyPlayingMessageId(messageId || null);
+      setIsAudioPaused(false);
 
       // Check if we have pre-generated audio for this message
       if (messageId && preGeneratedAudio[messageId]?.audioUrl) {
@@ -429,7 +473,18 @@ export default function Chat() {
         // Add event listeners for debugging
         audio.addEventListener('loadstart', () => console.log('Pre-generated audio load started'));
         audio.addEventListener('canplay', () => console.log('Pre-generated audio can play'));
-        audio.addEventListener('play', () => console.log('Pre-generated audio started playing'));
+        audio.addEventListener('play', () => {
+          console.log('Pre-generated audio started playing');
+          if (currentlyPlayingMessageId === messageId) {
+            setIsAudioPaused(false);
+          }
+        });
+        audio.addEventListener('pause', () => {
+          console.log('Pre-generated audio paused');
+          if (currentlyPlayingMessageId === messageId) {
+            setIsAudioPaused(true);
+          }
+        });
         audio.addEventListener('error', (e) => {
           console.error('Pre-generated audio element error:', e);
           console.error('Audio error code:', audio.error?.code, 'message:', audio.error?.message);
@@ -487,6 +542,8 @@ export default function Chat() {
         // Clean up the URL after playing and reset playing state
         audio.onended = () => {
           setIsPlayingTTS(false);
+          setCurrentlyPlayingMessageId(null);
+          setIsAudioPaused(false);
           currentAudioRef.current = null;
         };
 
@@ -509,23 +566,33 @@ export default function Chat() {
         .replace(/\n+/g, ' ') // Replace newlines with spaces
         .trim();
 
-      if (!cleanText) {
+      // Filter out thinking content to prevent TTS from reading internal AI reasoning
+      const filteredText = cleanText
+        .replace(/<think>[\s\S]*?<\/think>/gi, '') // Remove complete <think> blocks
+        .replace(/<think>[\s\S]*$/i, '') // Remove unclosed <think> at end of content
+        .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '') // Remove <thinking> blocks
+        .replace(/<thinking>[\s\S]*$/i, '') // Remove unclosed <thinking> at end
+        .replace(/^Thinking:[\s\S]*?(?=\n\n|\n[A-Z]|$)/im, '') // Remove "Thinking:" sections
+        .replace(/^Let me think[\s\S]*?(?=\n\n|\n[A-Z]|$)/im, '') // Remove "Let me think" sections
+        .trim();
+
+      if (!filteredText) {
         toast.error('No text to speak');
         setIsPlayingTTS(false);
         return;
       }
 
-      if (cleanText.length > 10000) {
+      if (filteredText.length > 10000) {
         toast.error('Text is too long for speech generation (max 10,000 characters)');
         setIsPlayingTTS(false);
         return;
       }
 
-      console.log('Generating TTS for text:', cleanText.substring(0, 100) + '...');
+      console.log('Generating TTS for text:', filteredText.substring(0, 100) + '...');
 
       try {
         // Try ElevenLabs TTS API first (primary)
-        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(cleanText, 'JkpEM0J2p7DL32VXnieS');
+        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(filteredText, 'JkpEM0J2p7DL32VXnieS', currentUser?.id);
 
         // Convert base64 to blob and play
         try {
@@ -545,7 +612,18 @@ export default function Chat() {
           // Add event listeners for debugging
           audio.addEventListener('loadstart', () => console.log('ElevenLabs audio load started'));
           audio.addEventListener('canplay', () => console.log('ElevenLabs audio can play'));
-          audio.addEventListener('play', () => console.log('ElevenLabs audio started playing'));
+          audio.addEventListener('play', () => {
+            console.log('ElevenLabs audio started playing');
+            if (currentlyPlayingMessageId === messageId) {
+              setIsAudioPaused(false);
+            }
+          });
+          audio.addEventListener('pause', () => {
+            console.log('ElevenLabs audio paused');
+            if (currentlyPlayingMessageId === messageId) {
+              setIsAudioPaused(true);
+            }
+          });
           audio.addEventListener('error', (e) => {
             console.error('ElevenLabs audio element error:', e);
             console.error('Audio error code:', audio.error?.code, 'message:', audio.error?.message);
@@ -602,6 +680,8 @@ export default function Chat() {
           audio.onended = () => {
             URL.revokeObjectURL(audioUrl);
             setIsPlayingTTS(false);
+            setCurrentlyPlayingMessageId(null);
+            setIsAudioPaused(false);
             currentAudioRef.current = null;
           };
         } catch (conversionError) {
@@ -616,7 +696,7 @@ export default function Chat() {
 
         try {
           // Try Groq TTS API
-          const result = await handleTextToSpeechAction(cleanText, 'Fritz-PlayAI', 'wav');
+          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', currentUser?.id);
 
           // Convert base64 to blob and play
           const audioData = Uint8Array.from(atob(result.audioData), c => c.charCodeAt(0));
@@ -634,7 +714,18 @@ export default function Chat() {
           // Add event listeners for debugging
           audio.addEventListener('loadstart', () => console.log('Groq audio load started'));
           audio.addEventListener('canplay', () => console.log('Groq audio can play'));
-          audio.addEventListener('play', () => console.log('Groq audio started playing'));
+          audio.addEventListener('play', () => {
+            console.log('Groq audio started playing');
+            if (currentlyPlayingMessageId === messageId) {
+              setIsAudioPaused(false);
+            }
+          });
+          audio.addEventListener('pause', () => {
+            console.log('Groq audio paused');
+            if (currentlyPlayingMessageId === messageId) {
+              setIsAudioPaused(true);
+            }
+          });
           audio.addEventListener('error', (e) => {
             console.error('Groq audio element error:', e);
             console.error('Audio error code:', audio.error?.code, 'message:', audio.error?.message);
@@ -693,6 +784,8 @@ export default function Chat() {
           audio.onended = () => {
             URL.revokeObjectURL(audioUrl);
             setIsPlayingTTS(false);
+            setCurrentlyPlayingMessageId(null);
+            setIsAudioPaused(false);
             currentAudioRef.current = null;
           };
         } catch (groqError) {
@@ -702,7 +795,7 @@ export default function Chat() {
           // Fallback to Web Speech API
           if ('speechSynthesis' in window) {
             try {
-              const utterance = new SpeechSynthesisUtterance(cleanText);
+              const utterance = new SpeechSynthesisUtterance(filteredText);
 
               // Try to find an English female voice
               const voices = speechSynthesis.getVoices();
@@ -730,6 +823,8 @@ export default function Chat() {
               utterance.onend = () => {
                 console.log('Web Speech API finished');
                 setIsPlayingTTS(false);
+                setCurrentlyPlayingMessageId(null);
+                setIsAudioPaused(false);
                 currentAudioRef.current = null;
               };
 
@@ -773,7 +868,7 @@ export default function Chat() {
       setIsPlayingTTS(false);
       currentAudioRef.current = null;
     }
-  }, [isPlayingTTS, currentAudioRef, preGeneratedAudio]);
+  }, [isPlayingTTS, currentAudioRef, preGeneratedAudio, currentlyPlayingMessageId, isAudioPaused]);
 
   // Copy functionality
   const handleCopy = useCallback(async (text?: string) => {
@@ -781,14 +876,6 @@ export default function Chat() {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
-      } else {
-        // fallback
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
       }
       toast.success('Copied to clipboard');
     } catch (e) {
@@ -985,6 +1072,25 @@ export default function Chat() {
     }
   }, [currentUser]);
 
+  // Load user avatar when user changes
+  useEffect(() => {
+    const loadUserAvatar = async () => {
+      if (currentUser?.id) {
+        try {
+          const avatarData = await DatabaseService.getUserAvatar(currentUser.id, currentUser.password);
+          setUserAvatar(avatarData || null);
+        } catch (error) {
+          console.warn('Failed to load user avatar:', error);
+          setUserAvatar(null);
+        }
+      } else {
+        setUserAvatar(null);
+      }
+    };
+
+    loadUserAvatar();
+  }, [currentUser?.id]);
+
   // Load conversation when currentConversationId changes
   useEffect(() => {
     console.log('currentConversationId changed:', currentConversationId);
@@ -998,6 +1104,8 @@ export default function Chat() {
         currentAudioRef.current = null;
       }
       setIsPlayingTTS(false);
+      setCurrentlyPlayingMessageId(null);
+      setIsAudioPaused(false);
 
       // Clean up pre-generated audio URLs
       Object.values(preGeneratedAudio).forEach(audio => {
@@ -1008,9 +1116,15 @@ export default function Chat() {
       updatePreGeneratedAudio(() => ({}));
 
       setMessages([]);
-      setIsSarcasticMode(false); // Reset sarcastic mode for new chats
     }
-  }, [currentConversationId, loadConversation, preGeneratedAudio]);
+  }, [currentConversationId, loadConversation]);
+
+  // Update previewFileId when currentFileId changes
+  useEffect(() => {
+    if (currentFileId) {
+      setPreviewFileId(currentFileId);
+    }
+  }, [currentFileId]);
 
   const createNewConversation = () => {
     // Stop any currently playing audio
@@ -1019,6 +1133,8 @@ export default function Chat() {
       currentAudioRef.current = null;
     }
     setIsPlayingTTS(false);
+    setCurrentlyPlayingMessageId(null);
+    setIsAudioPaused(false);
 
     // Clean up pre-generated audio URLs
     Object.values(preGeneratedAudio).forEach(audio => {
@@ -1128,7 +1244,7 @@ export default function Chat() {
     fileIds?: string[];
     files?: { id: string; name: string; size?: number }[];
     audioFile?: File;
-    mode?: "think-longer" | "deep-research" | "web-search" | "study" | "sarcastic";
+    mode?: "think-longer" | "deep-research" | "web-search" | "study";
   }) => {
     if (!model.includes('whisper') && input.trim().length === 0) return;
     if (model.includes('whisper') && !audioFile) return;
@@ -1164,10 +1280,12 @@ export default function Chat() {
         // Call transcription directly (not through continueConversation)
         const result = await handleTranscriptionAction(model, currentProvider || 'groq', base64Data, audioFile!.name, audioFile!.type);
 
+        streamingContentRef.current = "";
         for await (const content of readStreamableValue(result)) {
-          finalAssistantContent = content as string;
-          setStreamingContent(finalAssistantContent);
+          streamingContentRef.current = content as string;
+          setStreamingContent(streamingContentRef.current);
         }
+        finalAssistantContent = streamingContentRef.current;
 
         setIsStreaming(false);
         setIsLoading(false);
@@ -1201,7 +1319,7 @@ export default function Chat() {
     const userMessage: ExtendedMessage = {
       content: input,
       role: "user" as const,
-      mode: isSarcasticMode ? "sarcastic" : (mode || undefined),
+      mode: mode || undefined,
       files: files?.map(f => ({ id: f.id, name: f.name, size: f.size }))
     };
     const newMessages: CoreMessage[] = [...messages, userMessage];
@@ -1235,17 +1353,19 @@ export default function Chat() {
       // pass fileIds to RAG-enabled server action (server will run retrieval internally)
       const result = await continueConversation(messagesToSend, model, currentProvider || 'ollama', { 
         fileIds,
-        mode: isSarcasticMode ? "sarcastic" : undefined 
+        mode: undefined 
       });
 
       setIsStreaming(true);
       setIsLoading(true);
       let finalAssistantContent = "";
 
+      streamingContentRef.current = "";
       for await (const content of readStreamableValue(result)) {
-        finalAssistantContent = content as string;
-        setStreamingContent(finalAssistantContent);
+        streamingContentRef.current = content as string;
+        setStreamingContent(streamingContentRef.current);
       }
+      finalAssistantContent = streamingContentRef.current;
 
       setIsStreaming(false);
       setIsLoading(false);
@@ -1271,10 +1391,10 @@ export default function Chat() {
           sources: knowledgeSources
         }));
         
-        // Pre-generate TTS audio for instant playback (only for response content, not thinking)
-        const { response } = parseAssistantContent(finalAssistantContent, false);
-        const messageId = `${updated.length - 1}-${response.length}`;
-        preGenerateTTS(messageId, response);
+        // TTS pre-generation disabled to prevent excessive API calls
+        // const { response } = parseAssistantContent(finalAssistantContent, false);
+        // const messageId = `${updated.length - 1}-${response.length}`;
+        // preGenerateTTS(messageId, response);
         
         return updated;
       });
@@ -1310,7 +1430,6 @@ export default function Chat() {
         currentAudioRef.current.pause();
         currentAudioRef.current = null;
       }
-      setIsPlayingTTS(false);
 
       // Clean up pre-generated audio URLs
       Object.values(preGeneratedAudio).forEach(audio => {
@@ -1319,7 +1438,7 @@ export default function Chat() {
         }
       });
     };
-  }, [preGeneratedAudio]);
+  }, []);
 
   if (messages.length === 0) {
     return (
@@ -1347,20 +1466,51 @@ export default function Chat() {
               <p><strong>Knowledge Base:</strong> Accesses your conversation history to provide contextually relevant responses.</p>
               <p><strong>Personal Companion:</strong> Acts as your second brain, recalling past discussions and connecting ideas.</p>
               <p><strong>Smart Context:</strong> Automatically finds and includes relevant information from previous chats when answering questions.</p>
-              <p><strong>AI Modes:</strong> Choose from Think Longer, Deep Research, Web Search, Study Mode, and Sarcastic for specialized assistance.</p>
+              <p><strong>AI Modes:</strong> Choose from Think Longer, Deep Research, Web Search, and Study Mode for specialized assistance.</p>
             </div>
           </div>
         </div>
-        <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t">
-          <ChatInput
-            input={input}
-            setInput={setInput}
-            handleSubmit={handleSubmit}
-            model={currentModel}
-            handleModelChange={handleModelChange}
-            isLoading={isLoading}
-          />
+        <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t flex items-start gap-2">
+          <div className="flex-1">
+            <ChatInput
+              input={input}
+              setInput={setInput}
+              handleSubmit={handleSubmit}
+              model={currentModel}
+              handleModelChange={handleModelChange}
+              isLoading={isLoading}
+              onOpenFilesDialog={onOpenFilesDialog}
+            />
+          </div>
+          <div className="py-4 flex gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-10 w-10 p-0 rounded-lg border bg-background hover:bg-muted shrink-0"
+              disabled={isLoading}
+              title="Web search"
+              onClick={() => {
+                // TODO: Implement web search functionality
+                console.log("Web search clicked");
+              }}
+            >
+              <Globe size={16} />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-10 w-10 p-0 rounded-lg border bg-background hover:bg-muted shrink-0"
+              disabled={isLoading}
+              title="Voice input"
+              onClick={() => setShowVoiceModal(true)}
+            >
+              <Mic size={16} />
+            </Button>
+          </div>
         </div>
+        <VoiceModal open={showVoiceModal} onClose={() => setShowVoiceModal(false)} currentModel={currentModel} currentProvider={currentProvider || ""} currentConversationId={currentConversationId} currentMessages={messages} onConversationIdChange={setCurrentConversationId} onMessagesUpdate={setMessages} />
       </div>
     );
   }
@@ -1376,16 +1526,6 @@ export default function Chat() {
             </h2>
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="sarcastic-mode" className="text-sm font-medium">
-                Sarcastic
-              </Label>
-              <Switch
-                id="sarcastic-mode"
-                checked={isSarcasticMode}
-                onCheckedChange={setIsSarcasticMode}
-              />
-            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm">
@@ -1403,7 +1543,7 @@ export default function Chat() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto pb-4">
+      <div className="flex-1 overflow-y-auto pb-4 backdrop-blur-sm bg-background/80">
         {messages.map((m, i) => {
           const messageId = `${i}-${m.content?.toString().length || 0}`;
           const message = m as ExtendedMessage;
@@ -1411,17 +1551,24 @@ export default function Chat() {
           const responseMessageId = `${i}-${response.length}`;
           return (
             <div key={messageId} className={cn("mb-4 p-2", m.role === "user" ? "flex justify-end" : "flex justify-start")}>
-              <div className={cn("flex items-start max-w-[80%]", m.role === "user" ? "flex-row-reverse" : "flex-row")}>
+              <div className={cn("flex items-start", m.role === "user" ? "flex-row-reverse" : "flex-row")}>
                 <div
                   className={cn(
                     "flex size-8 shrink-0 select-none items-center justify-center rounded-lg",
                     m.role === "user"
                       ? "border bg-background ml-2"
-                      : "bg-nvidia border border-[#628f10] text-primary-foreground mr-2",
+                      : "border border-border mr-2",
                   )}>
-                  {m.role === "user" ? <FaUser /> : <FaBrain />}
+                  {m.role === "user" ? (
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={userAvatar || undefined} alt="User avatar" />
+                      <AvatarFallback>U</AvatarFallback>
+                    </Avatar>
+                  ) : (
+                    <img src="/lora.svg" alt="LoRA AI" className="h-6 w-6" />
+                  )}
                 </div>
-                <div className="space-y-2 overflow-hidden px-1">
+                <div className="space-y-2 px-1">
                   {/* Mode indicator for user messages */}
                   {m.role === "user" && message.mode && (
                     <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
@@ -1432,7 +1579,6 @@ export default function Chat() {
                             { id: "deep-research" as const, label: "Deep Research", icon: Search },
                             { id: "web-search" as const, label: "Web Search", icon: Search },
                             { id: "study" as const, label: "Study Mode", icon: BookOpen },
-                            { id: "sarcastic" as const, label: "Sarcastic", icon: FaBrain },
                           ];
                           const mode = modes.find(m => m.id === message.mode);
                           const Icon = mode?.icon;
@@ -1444,7 +1590,6 @@ export default function Chat() {
                             { id: "deep-research" as const, label: "Deep Research" },
                             { id: "web-search" as const, label: "Web Search" },
                             { id: "study" as const, label: "Study Mode" },
-                            { id: "sarcastic" as const, label: "Sarcastic" },
                           ];
                           return modes.find(m => m.id === message.mode)?.label;
                         })()}</span>
@@ -1539,21 +1684,41 @@ export default function Chat() {
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          console.log('🎵 Speaker button clicked for messageId:', responseMessageId, 'preGeneratedAudio keys:', Object.keys(preGeneratedAudio));
-                          if (!isPlayingTTS) {
-                            handleTextToSpeech(response, responseMessageId);
+                          console.log('🎵 Speaker button clicked for messageId:', responseMessageId, 'currentlyPlaying:', currentlyPlayingMessageId, 'isPlaying:', isPlayingTTS, 'isPaused:', isAudioPaused);
+                          
+                          if (currentlyPlayingMessageId === responseMessageId && isPlayingTTS) {
+                            // Currently playing this message - pause it
+                            handleTextToSpeech(response, responseMessageId, 'pause');
+                          } else if (currentlyPlayingMessageId === responseMessageId && isAudioPaused) {
+                            // Currently paused this message - resume it
+                            handleTextToSpeech(response, responseMessageId, 'resume');
+                          } else {
+                            // Not playing this message or playing different message - start playing this one
+                            handleTextToSpeech(response, responseMessageId, 'play');
                           }
                         }}
-                        disabled={isPlayingTTS}
+                        disabled={false}
                         className={cn(
                           "h-6 w-6 p-0 ml-2 opacity-60 hover:opacity-100",
-                          isPlayingTTS && "opacity-30 cursor-not-allowed pointer-events-none select-none"
+                          currentlyPlayingMessageId === responseMessageId && isPlayingTTS && !isAudioPaused && "opacity-100 text-blue-500"
                         )}
-                        title={isPlayingTTS ? "Audio is playing" : preGeneratedAudio[responseMessageId] ? "Listen to this message (pre-generated)" : "Listen to this message"}
+                        title={
+                          currentlyPlayingMessageId === responseMessageId && isPlayingTTS && !isAudioPaused
+                            ? "Pause audio"
+                            : currentlyPlayingMessageId === responseMessageId && isAudioPaused
+                            ? "Resume audio"
+                            : preGeneratedAudio[responseMessageId]
+                            ? "Listen to this message (pre-generated)"
+                            : "Listen to this message"
+                        }
                       >
-                        <Volume2 className={cn("h-3 w-3", isPlayingTTS && "text-blue-500 animate-pulse")} />
-                        {preGeneratedAudio[`${i}-${(() => { const { response } = parseAssistantContent(m.content as string, false); return response.length; })()}`] && !isPlayingTTS && (
-                          <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
+                        {currentlyPlayingMessageId === responseMessageId && isPlayingTTS && !isAudioPaused ? (
+                          <Pause className="h-3 w-3 text-blue-500 animate-pulse" />
+                        ) : (
+                          <Volume2 className={cn(
+                            "h-3 w-3",
+                            currentlyPlayingMessageId === responseMessageId && isAudioPaused && "text-blue-500"
+                          )} />
                         )}
                       </Button>
 
@@ -1573,7 +1738,7 @@ export default function Chat() {
                           className="h-6 w-6 p-0 ml-1 opacity-60 hover:opacity-100"
                           title="Export this deep research response as PDF"
                         >
-                          <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                          <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6v12H4V4a2 2 0 0 1 2-2h8z"/></svg>
                         </Button>
                       )}
 
@@ -1596,17 +1761,48 @@ export default function Chat() {
         <div ref={messageEndRef} />
       </div>
 
-      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t">
-        <ChatInput
-          input={input}
-          setInput={setInput}
-          handleSubmit={handleSubmit}
-          model={currentModel}
-          handleModelChange={handleModelChange}
-          isLoading={isLoading}
-        />
+      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t flex items-start gap-2">
+        <div className="flex-1">
+          <ChatInput
+            input={input}
+            setInput={setInput}
+            handleSubmit={handleSubmit}
+            model={currentModel}
+            handleModelChange={handleModelChange}
+            isLoading={isLoading}
+            onOpenFilesDialog={onOpenFilesDialog}
+          />
+        </div>
+        <div className="py-4 flex gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-10 w-10 p-0 rounded-lg border bg-background hover:bg-muted shrink-0"
+            disabled={isLoading}
+            title="Web search"
+            onClick={() => {
+              // TODO: Implement web search functionality
+              console.log("Web search clicked");
+            }}
+          >
+            <Globe size={16} />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-10 w-10 p-0 rounded-lg border bg-background hover:bg-muted shrink-0"
+            disabled={isLoading}
+            title="Voice input"
+            onClick={() => setShowVoiceModal(true)}
+          >
+            <Mic size={16} />
+          </Button>
+        </div>
       </div>
       <FilePreviewModal fileId={previewFileId} onClose={() => setPreviewFileId(null)} />
+      <VoiceModal open={showVoiceModal} onClose={() => setShowVoiceModal(false)} currentModel={currentModel} currentProvider={currentProvider || ""} currentConversationId={currentConversationId} currentMessages={messages} onConversationIdChange={setCurrentConversationId} onMessagesUpdate={setMessages} />
     </div>
   );
 }

@@ -65,7 +65,7 @@ export function Login({ onLogin }: LoginProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !password.trim()) return;
+    if ((mode === "create" && !name.trim()) || !email.trim() || !password.trim()) return;
 
     setIsLoading(true);
     setError("");
@@ -286,7 +286,7 @@ export function Login({ onLogin }: LoginProps) {
               <Button
                 type="submit"
                 className="w-full h-12 text-base font-medium bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 transition-all duration-200 shadow-lg hover:shadow-xl"
-                disabled={isLoading || !name.trim() || !password.trim() || (mode === "create" && (!securityQuestion.trim() || !securityAnswer.trim()))}
+                disabled={isLoading || (mode === "create" && !name.trim()) || !email.trim() || !password.trim() || (mode === "create" && (!securityQuestion.trim() || !securityAnswer.trim()))}
               >
                 {isLoading ? (
                   <div className="flex items-center gap-2">

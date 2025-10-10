@@ -1,7 +1,7 @@
 "use client";
 
 import React, { ReactNode, useState, createContext, useContext, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Nav from "@/components/nav";
 import { Toaster } from "@/components/ui/sonner";
 import { Analytics } from "@vercel/analytics/react";
@@ -13,9 +13,12 @@ import { ConversationProvider, useConversation } from "@/components/conversation
 import { SeeAllChatsDialog } from "@/components/dialogs/see-all-chats-dialog";
 import { SeeAllFilesDialog } from "@/components/dialogs/see-all-files-dialog";
 import { SeeAllProjectsDialog } from "@/components/dialogs/see-all-projects-dialog";
+import { AddToProjectDialog } from "@/components/dialogs/add-to-project-dialog";
+import { SeeAllProjectChatsDialog } from "@/components/dialogs/see-all-project-chats-dialog";
 import { useOllamaStatus } from "@/lib/model-hooks";
 import { SystemCheck } from "@/components/system-check";
 import { useQueryClient } from "@tanstack/react-query";
+import { useProjects } from "@/lib/database-hooks";
 
 import { ProviderType } from "@/lib/model-types";
 
@@ -24,12 +27,25 @@ const ModelContext = createContext<{
   currentModel: string;
   currentProvider?: ProviderType;
   onModelChange: (model: string, provider?: ProviderType) => void;
+  onOpenFilesDialog?: () => void;
 }>({
   currentModel: '',
   onModelChange: () => {},
+  onOpenFilesDialog: () => {},
 });
 
 export const useModel = () => useContext(ModelContext);
+
+// Create a context for file preview state
+const FilePreviewContext = createContext<{
+  currentFileId: string | null;
+  setCurrentFileId: (fileId: string | null) => void;
+}>({
+  currentFileId: null,
+  setCurrentFileId: () => {},
+});
+
+export const useFilePreview = () => useContext(FilePreviewContext);
 
 interface AppContentProps {
   children: ReactNode;
@@ -39,8 +55,10 @@ function AppContentInner({ children }: AppContentProps) {
   const { isAuthenticated, isLoading, currentUser } = useUser();
   const { currentConversationId, setCurrentConversationId } = useConversation();
   const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
   const { data: isOllamaRunning = false } = useOllamaStatus();
+  const { data: projects = [] } = useProjects(currentUser?.id || '');
   const [currentModel, setCurrentModel] = useState(() => {
     // Initialize from localStorage if available
     if (typeof window !== 'undefined') {
@@ -63,6 +81,13 @@ function AppContentInner({ children }: AppContentProps) {
   const [chatsDialogType, setChatsDialogType] = useState<'pinned' | 'recent'>('recent');
   const [filesDialogOpen, setFilesDialogOpen] = useState(false);
   const [projectsDialogOpen, setProjectsDialogOpen] = useState(false);
+  const [addToProjectDialogOpen, setAddToProjectDialogOpen] = useState(false);
+  const [conversationToAddToProject, setConversationToAddToProject] = useState<string | null>(null);
+  const [projectChatsDialogOpen, setProjectChatsDialogOpen] = useState(false);
+  const [selectedProjectForChats, setSelectedProjectForChats] = useState<{ id: string; name: string } | null>(null);
+  const [currentFileId, setCurrentFileId] = useState<string | null>(null);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
 
   // Initialize sidebar state from cookie
   const [sidebarOpen] = useState(() => {
@@ -113,6 +138,32 @@ function AppContentInner({ children }: AppContentProps) {
 
   const handleCreateProject = () => {
     setProjectsDialogOpen(true);
+  };
+
+  const handleAddToProject = (conversationId: string) => {
+    setConversationToAddToProject(conversationId);
+    setAddToProjectDialogOpen(true);
+  };
+
+  const handleSelectFile = (fileId: string) => {
+    // For sidebar file clicks, we want to open preview
+    // This will be handled by the Chat component
+    setCurrentFileId(fileId);
+  };
+
+  const handleSelectProject = (projectId: string) => {
+    // Find the project name and open the project chats dialog
+    const project = projects.find(p => p.id === projectId);
+    if (project) {
+      setSelectedProjectForChats({ id: projectId, name: project.name });
+      setProjectChatsDialogOpen(true);
+    }
+  };
+
+  const handleSelectFolder = (folderId: string | null) => {
+    // Open the SeeAllFilesDialog with the selected folder
+    setFilesDialogOpen(true);
+    setCurrentFolderId(folderId);
   };
 
   const handleModelChange = (model: string, provider?: ProviderType) => {
@@ -166,43 +217,67 @@ function AppContentInner({ children }: AppContentProps) {
     return <Login onLogin={handleLogin} />;
   }
 
-  return (
-    <ModelContext.Provider value={{ currentModel, currentProvider, onModelChange: handleModelChange }}>
-      <SidebarProvider defaultOpen={sidebarOpen}>
-        <AppSidebar
-          onNewChat={handleNewChat}
-          onSelectConversation={handleSelectConversation}
-          currentConversationId={currentConversationId}
-          onSeeAllChats={handleSeeAllChats}
-          onSeeAllFiles={handleSeeAllFiles}
-          onCreateFolder={handleCreateFolder}
-          onSeeAllProjects={handleSeeAllProjects}
-          onCreateProject={handleCreateProject}
-        />
-        <SidebarInset>
-          <Nav />
-          <Toaster position={"top-center"} richColors />
-          <SystemCheck />
-          {children}
-          <Analytics />
-        </SidebarInset>
-      </SidebarProvider>
+  const isProfilePage = pathname === '/profile';
 
-      {/* Dialogs */}
-      <SeeAllChatsDialog
-        open={chatsDialogOpen}
-        onOpenChange={setChatsDialogOpen}
-        type={chatsDialogType}
-        onSelectConversation={handleSelectConversation}
-      />
-      <SeeAllFilesDialog
-        open={filesDialogOpen}
-        onOpenChange={setFilesDialogOpen}
-      />
-      <SeeAllProjectsDialog
-        open={projectsDialogOpen}
-        onOpenChange={setProjectsDialogOpen}
-      />
+  return (
+    <ModelContext.Provider value={{ currentModel, currentProvider, onModelChange: handleModelChange, onOpenFilesDialog: handleSeeAllFiles }}>
+      <FilePreviewContext.Provider value={{ currentFileId, setCurrentFileId }}>
+        <SidebarProvider defaultOpen={sidebarOpen}>
+          {!isProfilePage && (
+            <AppSidebar
+              onNewChat={handleNewChat}
+              onSelectConversation={handleSelectConversation}
+              currentConversationId={currentConversationId}
+              onSeeAllChats={handleSeeAllChats}
+              onSeeAllFiles={handleSeeAllFiles}
+              onCreateFolder={handleCreateFolder}
+              onSelectFile={handleSelectFile}
+              currentFileId={currentFileId}
+              currentFolderId={currentFolderId}
+              onSelectFolder={handleSelectFolder}
+              onSeeAllProjects={handleSeeAllProjects}
+              onCreateProject={handleCreateProject}
+              onSelectProject={handleSelectProject}
+              onAddToProject={handleAddToProject}
+            />
+          )}
+          <SidebarInset>
+            {!isProfilePage && <Nav />}
+            <Toaster position={"top-center"} richColors />
+            <SystemCheck />
+            {children}
+            <Analytics />
+          </SidebarInset>
+        </SidebarProvider>
+
+        {/* Dialogs */}
+        <SeeAllChatsDialog
+          open={chatsDialogOpen}
+          onOpenChange={setChatsDialogOpen}
+          type={chatsDialogType}
+          onSelectConversation={handleSelectConversation}
+        />
+        <SeeAllFilesDialog
+          open={filesDialogOpen}
+          onOpenChange={setFilesDialogOpen}
+        />
+        <SeeAllProjectsDialog
+          open={projectsDialogOpen}
+          onOpenChange={setProjectsDialogOpen}
+        />
+        <AddToProjectDialog
+          open={addToProjectDialogOpen}
+          onOpenChange={setAddToProjectDialogOpen}
+          conversationId={conversationToAddToProject}
+        />
+        <SeeAllProjectChatsDialog
+          open={projectChatsDialogOpen}
+          onOpenChange={setProjectChatsDialogOpen}
+          projectId={selectedProjectForChats?.id || null}
+          projectName={selectedProjectForChats?.name || ''}
+          onSelectConversation={handleSelectConversation}
+        />
+      </FilePreviewContext.Provider>
     </ModelContext.Provider>
   );
 }

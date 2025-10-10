@@ -22,6 +22,7 @@ interface UserContextType {
   deleteCurrentUser: (password: string) => Promise<boolean>;
   resetPassword: (name: string, securityAnswer: string, newPassword: string) => Promise<boolean>;
   verifySecurityAnswer: (name: string, securityAnswer: string) => Promise<User | null>;
+  refreshCurrentUser: () => Promise<void>;
   isAuthenticated: boolean;
   isLoading: boolean;
 }
@@ -177,6 +178,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshCurrentUser = async () => {
+    if (!currentUser) return;
+
+    try {
+      const updatedUser = await DatabaseService.getUserById(currentUser.id);
+      if (updatedUser) {
+        setCurrentUser(updatedUser);
+      }
+    } catch (error) {
+      console.error("Error refreshing current user:", error);
+    }
+  };
+
   const isAuthenticated = currentUser !== null;
 
   return (
@@ -190,6 +204,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       deleteCurrentUser,
       resetPassword,
       verifySecurityAnswer,
+      refreshCurrentUser,
       isAuthenticated,
       isLoading
     }}>

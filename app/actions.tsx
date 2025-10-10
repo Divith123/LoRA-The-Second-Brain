@@ -13,6 +13,7 @@ import { extractText } from '@/lib/file-processing';
 import { ProviderType } from "@/lib/model-types";
 import { DatabaseService } from "@/lib/database";
 import { EncryptedConversationStorage } from "@/lib/encrypted-conversation-storage";
+import { generateBarkSpeech, filterThinkingContent } from "@/lib/bark-tts";
 
 let localInferenceService: any = null;
 
@@ -202,10 +203,10 @@ export async function continueConversation(
         break;
 
       case 'sarcastic':
-        modePrompt = 'You are a sarcastic speaking LoRA AI. Respond to ALL user messages with heavy sarcasm, irony, and witty commentary. Use exaggerated expressions, clever wordplay, and humorous jabs while still providing accurate information. Be entertaining, cheeky, and never take anything seriously - always respond with a sarcastic twist. Keep it light-hearted but make every response dripping with sarcasm.';
-        modeTemperature = 0.9; // Higher temperature for more creative responses
-        modeMaxTokens = 1536;
-        modeInstructions = 'EVERY response must be sarcastic. Use phrases like "oh sure", "as if", "wow, groundbreaking", "how original", etc. Be witty and clever. Maintain accuracy but deliver it with heavy sarcasm and irony.';
+        modePrompt = 'You are a sarcastic speaking LoRA AI. Respond with witty, ironic commentary in short, punchy answers. Keep responses under 50 words - be clever but concise. Use sarcasm sparingly but effectively.';
+        modeTemperature = 0.7; // Balanced creativity for voice responses
+        modeMaxTokens = 256; // Much shorter for voice responses
+        modeInstructions = 'Keep ALL responses under 50 words. Be sarcastic but brief. Focus on one clever point per response.';
         break;
     }
   }
@@ -429,50 +430,47 @@ export async function handleTranscriptionAction(model: string, provider: Provide
   return await handleTranscription(model, provider, audioData, fileName, mimeType);
 }
 
-// Handle text-to-speech requests
-async function handleTextToSpeech(text: string, voice: string = 'Fritz-PlayAI', responseFormat: string = 'wav') {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new Error('Groq API key not configured');
+// Server action for voice transcription that returns text directly (not a stream)
+export async function transcribeAudioForVoice(model: string, provider: ProviderType, audioData: string, fileName: string, mimeType: string): Promise<string> {
+  if (!audioData) {
+    throw new Error('Audio data is required for transcription');
   }
 
   try {
-    console.log('TTS Request:', { textLength: text.length, voice, responseFormat });
-    
-    const response = await fetch('https://api.groq.com/openai/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'playai-tts',
-        input: text,
-        voice: voice,
-        response_format: responseFormat,
-      }),
+    const transcriptionText = await modelService.generateResponse(provider, model, [], {
+      audioBase64: audioData,
+      fileName,
+      mimeType,
+      response_format: 'text'
     });
 
-    console.log('TTS API Response status:', response.status);
+    // Return the transcription text directly
+    return transcriptionText;
+  } catch (error) {
+    console.error('Transcription error:', error);
+    throw error;
+  }
+}
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('TTS API Error:', errorText);
-      throw new Error(`Groq TTS API error: ${response.status} ${response.statusText} - ${errorText}`);
+// Handle text-to-speech requests
+async function handleTextToSpeech(text: string, voice: string = 'af_bella', responseFormat: string = 'wav', userId?: string) {
+  try {
+    console.log('TTS Request:', { textLength: text.length, voice, responseFormat });
+
+    // Filter thinking content from the text
+    const filteredText = filterThinkingContent(text);
+    console.log('Filtered text length:', filteredText.length);
+
+    if (!filteredText.trim()) {
+      throw new Error('No speech content after filtering thinking patterns');
     }
 
-    // Convert audio data to base64 for serialization
-    const audioBuffer = await response.arrayBuffer();
-    console.log('TTS Audio buffer size:', audioBuffer.byteLength);
-    
-    const base64Audio = Buffer.from(audioBuffer).toString('base64');
-    console.log('TTS Base64 length:', base64Audio.length);
+    // Use Bark TTS for open-source emotional speech
+    const result = await generateBarkSpeech(filteredText, voice);
 
-    return {
-      audioData: base64Audio,
-      contentType: response.headers.get('content-type') || 'audio/wav',
-      fileName: `tts-${Date.now()}.${responseFormat}`,
-    };
+    console.log('Bark TTS generated successfully');
+
+    return result;
   } catch (error) {
     console.error('Error generating TTS:', error);
     throw error;
@@ -480,106 +478,29 @@ async function handleTextToSpeech(text: string, voice: string = 'Fritz-PlayAI', 
 }
 
 // Export handleTextToSpeech as a server action
-export async function handleTextToSpeechAction(text: string, voice?: string, responseFormat?: string) {
-  return await handleTextToSpeech(text, voice, responseFormat);
+export async function handleTextToSpeechAction(text: string, voice?: string, responseFormat?: string, userId?: string) {
+  return await handleTextToSpeech(text, voice, responseFormat, userId);
 }
 
 // Handle ElevenLabs text-to-speech requests
-async function handleElevenLabsTextToSpeech(text: string, voiceId: string = 'JkpEM0J2p7DL32VXnieS') {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  console.log('ElevenLabs API Key present:', !!apiKey, 'Length:', apiKey?.length);
-  if (!apiKey) {
-    throw new Error('ElevenLabs API key not configured');
-  }
-
+async function handleElevenLabsTextToSpeech(text: string, voiceId: string = 'af_bella', userId?: string) {
   try {
     console.log('ElevenLabs TTS Request:', { textLength: text.length, voiceId });
 
-    // Analyze text for emotional cues to adjust voice settings
-    const lowerText = text.toLowerCase();
-    let style = 0.3; // Default style
-    let stability = 0.5; // Default stability (must be 0.0, 0.5, or 1.0)
-    let similarity_boost = 0.8; // Default similarity
-    let speed = 1.0; // Default speed
+    // Filter thinking content from the text
+    const filteredText = filterThinkingContent(text);
+    console.log('Filtered text length:', filteredText.length);
 
-    // Detect emotional patterns and adjust settings accordingly
-    if (lowerText.includes('!') && lowerText.includes('?') || lowerText.includes('wow') || lowerText.includes('amazing') || lowerText.includes('incredible')) {
-      // Excited/enthusiastic
-      style = 0.8;
-      stability = 0.0; // Creative
-      speed = 1.1;
-    } else if (lowerText.includes('whisper') || lowerText.includes('quiet') || lowerText.includes('softly') || lowerText.includes('secret')) {
-      // Whispering/soft
-      style = 0.1;
-      stability = 1.0; // Robust
-      speed = 0.9;
-    } else if (lowerText.includes('angry') || lowerText.includes('mad') || lowerText.includes('furious') || lowerText.includes('damn') || lowerText.includes('shit')) {
-      // Angry/intense
-      style = 0.9;
-      stability = 0.0; // Creative
-      speed = 1.2;
-    } else if (lowerText.includes('laugh') || lowerText.includes('haha') || lowerText.includes('lol') || lowerText.includes('funny') || lowerText.includes('joke')) {
-      // Laughing/playful
-      style = 0.7;
-      stability = 0.5; // Natural
-      speed = 1.0;
-    } else if (lowerText.includes('sad') || lowerText.includes('sorry') || lowerText.includes('unfortunately') || lowerText.includes('regret')) {
-      // Sad/serious
-      style = 0.2;
-      stability = 1.0; // Robust
-      speed = 0.95;
-    } else if (lowerText.includes('?') && lowerText.split('?').length > 2) {
-      // Questioning/curious
-      style = 0.6;
-      stability = 0.5; // Natural
-      speed = 1.05;
-    } else if (lowerText.includes('think') || lowerText.includes('consider') || lowerText.includes('analyze')) {
-      // Thinking/contemplative
-      style = 0.4;
-      stability = 0.5; // Natural
-      speed = 0.9;
+    if (!filteredText.trim()) {
+      throw new Error('No speech content after filtering thinking patterns');
     }
 
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'audio/mpeg',
-        'Content-Type': 'application/json',
-        'xi-api-key': apiKey
-      },
-      body: JSON.stringify({
-        text: text,
-        model_id: 'eleven_v3',
-        voice_settings: {
-          stability: stability,
-          similarity_boost: similarity_boost,
-          style: style,
-          use_speaker_boost: true,
-          speed: speed
-        }
-      })
-    });
+    // Use Bark TTS for open-source emotional speech
+    const result = await generateBarkSpeech(filteredText, voiceId);
 
-    console.log('ElevenLabs TTS API Response status:', response.status);
+    console.log('Bark TTS generated successfully');
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('ElevenLabs TTS API Error:', errorText);
-      throw new Error(`ElevenLabs TTS API error: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-
-    // Convert audio data to base64 for serialization
-    const audioBuffer = await response.arrayBuffer();
-    console.log('ElevenLabs TTS Audio buffer size:', audioBuffer.byteLength);
-
-    const base64Audio = Buffer.from(audioBuffer).toString('base64');
-    console.log('ElevenLabs TTS Base64 length:', base64Audio.length);
-
-    return {
-      audioData: base64Audio,
-      contentType: 'audio/mpeg',
-      fileName: `elevenlabs-tts-${Date.now()}.mp3`,
-    };
+    return result;
   } catch (error) {
     console.error('Error generating ElevenLabs TTS:', error);
     throw error;
@@ -587,6 +508,6 @@ async function handleElevenLabsTextToSpeech(text: string, voiceId: string = 'Jkp
 }
 
 // Export handleElevenLabsTextToSpeech as a server action
-export async function handleElevenLabsTextToSpeechAction(text: string, voiceId?: string) {
-  return await handleElevenLabsTextToSpeech(text, voiceId);
+export async function handleElevenLabsTextToSpeechAction(text: string, voiceId?: string, userId?: string) {
+  return await handleElevenLabsTextToSpeech(text, voiceId, userId);
 }

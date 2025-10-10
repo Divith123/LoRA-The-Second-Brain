@@ -13,6 +13,13 @@ export interface User {
   securityQuestion: string;
   securityAnswer: string;
   createdAt: string;
+  avatar?: string; // File ID of the avatar file
+  // API Keys for different services
+  groqApiKey?: string;
+  elevenlabsApiKey?: string;
+  openaiApiKey?: string;
+  openrouterApiKey?: string;
+  geminiApiKey?: string;
 }
 
 export interface Conversation extends EncryptedConversationData {
@@ -60,25 +67,11 @@ export class LoRADatabase extends Dexie {
       projects: 'id, userId, name, category, createdAt, updatedAt'
     });
 
-    this.version(7).stores({
-      users: 'id, name, email, createdAt, securityQuestion',
-      conversations: 'id, userId, title, createdAt, updatedAt, pinned, provider',
+    this.version(9).stores({
+      users: 'id, name, email, createdAt, securityQuestion, groqApiKey, elevenlabsApiKey, openaiApiKey, openrouterApiKey, geminiApiKey, avatar',
+      conversations: 'id, userId, title, createdAt, updatedAt, pinned, provider, projectId',
       files: 'id, userId, name, type, path, parentId, createdAt, updatedAt',
       projects: 'id, userId, name, category, createdAt, updatedAt'
-    }).upgrade(async (tx) => {
-      // Migrate existing users to separate name and email
-      const users = await tx.table('users').toArray();
-      for (const user of users) {
-        if (user.name && user.name.includes('@')) {
-          // If name contains email, extract name and set email
-          const email = user.name;
-          const name = email.split('@')[0];
-          await tx.table('users').update(user.id, { name, email });
-        } else if (!user.email) {
-          // If no email field exists, set it to empty string
-          await tx.table('users').update(user.id, { email: '' });
-        }
-      }
     });
 
     // Add debugging
@@ -358,11 +351,122 @@ export class DatabaseService {
     }
   }
 
-  static async updateUser(id: string, updates: Partial<User>): Promise<void> {
+  static async updateUserApiKeys(userId: string, apiKeys: {
+    groqApiKey?: string;
+    elevenlabsApiKey?: string;
+    openaiApiKey?: string;
+    openrouterApiKey?: string;
+    geminiApiKey?: string;
+  }): Promise<void> {
     try {
-      await this.getDatabase().users.update(id, updates);
+      await this.getDatabase().users.update(userId, apiKeys);
     } catch (error) {
-      console.error('Error updating user:', error);
+      console.error('Error updating user API keys:', error);
+    }
+  }
+
+  static async getUserApiKeys(userId: string): Promise<{
+    groqApiKey?: string;
+    elevenlabsApiKey?: string;
+    openaiApiKey?: string;
+    openrouterApiKey?: string;
+    geminiApiKey?: string;
+  } | null> {
+    try {
+      const user = await this.getDatabase().users.get(userId);
+      if (!user) return null;
+
+      return {
+        groqApiKey: user.groqApiKey || '',
+        elevenlabsApiKey: user.elevenlabsApiKey || '',
+        openaiApiKey: user.openaiApiKey || '',
+        geminiApiKey: user.geminiApiKey || '',
+        openrouterApiKey: user.openrouterApiKey || ''
+      };
+    } catch (error) {
+      console.error('Error getting user API keys:', error);
+      return null;
+    }
+  }
+
+  static async updateUserAvatar(userId: string, avatarFile: File, password: string): Promise<boolean> {
+    try {
+      // Delete existing avatar first
+      const existingUser = await this.getDatabase().users.get(userId);
+      if (existingUser?.avatar) {
+        await this.deleteFile(existingUser.avatar);
+      }
+
+      // Read the file as ArrayBuffer
+      const fileBuffer = await avatarFile.arrayBuffer();
+      
+      // Create encrypted file entry for the avatar
+      const avatarFileEntry = await this.createFile(
+        userId,
+        `avatar_${userId}_${Date.now()}.jpg`,
+        'image',
+        `/avatars/${userId}`,
+        avatarFile.size,
+        undefined,
+        fileBuffer,
+        password
+      );
+
+      if (!avatarFileEntry) {
+        return false;
+      }
+
+      // Update user with avatar file ID (not encrypted path)
+      await this.getDatabase().users.update(userId, { avatar: avatarFileEntry.id });
+      return true;
+    } catch (error) {
+      console.error('Error updating user avatar:', error);
+      return false;
+    }
+  }
+
+  static async getUserAvatar(userId: string, password: string): Promise<string | null> {
+    try {
+      const user = await this.getDatabase().users.get(userId);
+      if (!user || !user.avatar) {
+        return null;
+      }
+
+      // Load the avatar file content using the file ID
+      const avatarBuffer = await this.loadFileContent(user.avatar, password);
+      if (!avatarBuffer) {
+        return null;
+      }
+
+      // Convert to data URL
+      const blob = new Blob([avatarBuffer], { type: 'image/jpeg' });
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error getting user avatar:', error);
+      return null;
+    }
+  }
+
+  static async deleteUserAvatar(userId: string): Promise<boolean> {
+    try {
+      const user = await this.getDatabase().users.get(userId);
+      if (!user || !user.avatar) {
+        return true; // No avatar to delete
+      }
+
+      // Delete the avatar file using the file ID
+      await this.deleteFile(user.avatar);
+
+      // Update user to remove avatar reference
+      await this.getDatabase().users.update(userId, { avatar: undefined });
+      return true;
+    } catch (error) {
+      console.error('Error deleting user avatar:', error);
+      return false;
     }
   }
 

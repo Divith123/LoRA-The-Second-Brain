@@ -14,9 +14,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 interface SeeAllFilesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onFileSelect?: (file: { id: string; name: string; size?: number }) => void;
 }
 
-export function SeeAllFilesDialog({ open, onOpenChange }: SeeAllFilesDialogProps) {
+export function SeeAllFilesDialog({ open, onOpenChange, onFileSelect }: SeeAllFilesDialogProps) {
   const { currentUser } = useUser();
   const { data: files = [] } = useFiles(currentUser?.id || '');
   const createFileMutation = useCreateFile();
@@ -249,7 +250,24 @@ export function SeeAllFilesDialog({ open, onOpenChange }: SeeAllFilesDialogProps
                     <div className="flex justify-center mb-2 relative">
                       {getFileIcon(file.type)}
                     </div>
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                      {onFileSelect && file.type !== 'folder' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 bg-primary/10 hover:bg-primary/20"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onFileSelect({ id: file.id, name: file.name, size: file.size });
+                            onOpenChange(false);
+                          }}
+                          title="Select file for message"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </Button>
+                      )}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="h-6 w-6 p-0">

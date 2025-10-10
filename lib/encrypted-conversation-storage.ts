@@ -12,6 +12,7 @@ export interface EncryptedConversationData {
   createdAt: string;
   updatedAt: string;
   pinned?: boolean;
+  projectId?: string; // Associated project ID
   encryptedPath: string; // Storage key identifier
 }
 

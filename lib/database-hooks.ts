@@ -52,19 +52,6 @@ export function useCreateUser() {
   });
 }
 
-export function useUpdateUser() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: Partial<User> }) =>
-      DatabaseService.updateUser(id, updates),
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.users });
-      queryClient.invalidateQueries({ queryKey: queryKeys.user(id) });
-    },
-  });
-}
-
 export function useDeleteUser() {
   const queryClient = useQueryClient();
 

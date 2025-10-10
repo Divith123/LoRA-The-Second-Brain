@@ -7,8 +7,9 @@ import { AiOutlineEnter } from "react-icons/ai";
 import { Upload, Brain, Search, BookOpen, Clock, X, Mic } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import FilePreviewModal from "./file-preview-modal";
+import { SeeAllFilesDialog } from "./dialogs/see-all-files-dialog";
 
-type AIMode = "think-longer" | "deep-research" | "web-search" | "study" | "sarcastic";
+type AIMode = "think-longer" | "deep-research" | "web-search" | "study";
 
 type ChatInputProps = {
   input: string;
@@ -17,6 +18,7 @@ type ChatInputProps = {
   model: string;
   handleModelChange: (model: string, provider?: ProviderType) => void;
   isLoading?: boolean;
+  onOpenFilesDialog?: () => void;
 };
 
 export default function ChatInput({
@@ -26,9 +28,19 @@ export default function ChatInput({
   model,
   handleModelChange,
   isLoading = false,
+  onOpenFilesDialog,
 }: ChatInputProps) {
   const [selectedMode, setSelectedMode] = useState<AIMode | null>(null);
   const [showModeSelector, setShowModeSelector] = useState(false);
+  const [showUploadOptions, setShowUploadOptions] = useState(false);
+  const [showStorageSelector, setShowStorageSelector] = useState(false);
+  const [showFilesDialog, setShowFilesDialog] = useState(false);
+  const [storageFiles, setStorageFiles] = useState<Array<{
+    id: string;
+    name: string;
+    size: number;
+    createdAt: string;
+  }>>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size?: number }>>([]);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
@@ -39,7 +51,6 @@ export default function ChatInput({
     { id: "deep-research" as AIMode, label: "Deep Research", icon: Search, shortcut: "/research" },
     { id: "web-search" as AIMode, label: "Web Search", icon: Search, shortcut: "/search" },
     { id: "study" as AIMode, label: "Study Mode", icon: BookOpen, shortcut: "/study" },
-    { id: "sarcastic" as AIMode, label: "Sarcastic", icon: Brain, shortcut: "/sarcastic" },
   ], []);
 
   // Detect slash commands - use useCallback to stabilize the function
@@ -84,7 +95,14 @@ export default function ChatInput({
       const form = new FormData();
       for (const f of files) form.append("files", f);
 
-      const res = await fetch("/api/files", { method: "POST", body: form });
+      // Get current user ID from localStorage
+      const currentUserId = localStorage.getItem("lora_current_user");
+      if (!currentUserId) {
+        console.error("No current user found");
+        return;
+      }
+
+      const res = await fetch(`/api/files?userId=${currentUserId}`, { method: "POST", body: form });
       const data = await res.json();
       if (res.ok && data?.files) {
         setAttachments(prev => [...prev, ...data.files]);
@@ -119,6 +137,32 @@ export default function ChatInput({
   };
   const truncate = (s: string, n = 28) =>
     s.length > n ? s.slice(0, n - 3) + "..." : s;
+
+  const handleUploadFromStorage = async () => {
+    try {
+      // Get current user ID from localStorage
+      const currentUserId = localStorage.getItem("lora_current_user");
+      if (!currentUserId) {
+        console.error("No current user found");
+        return;
+      }
+
+      const res = await fetch(`/api/files?userId=${currentUserId}`);
+      const data = await res.json();
+      if (res.ok && data?.files) {
+        setStorageFiles(data.files);
+        setShowStorageSelector(true);
+        setShowUploadOptions(false);
+      }
+    } catch (error) {
+      console.error("Failed to fetch storage files:", error);
+    }
+  };
+
+  const handleSelectStorageFile = (file: { id: string; name: string; size: number }) => {
+    setAttachments(prev => [...prev, { id: file.id, name: file.name, size: file.size }]);
+    setShowStorageSelector(false);
+  };
 
   const removeAttachment = (id: string) => {
     setAttachments(prev => prev.filter(f => f.id !== id));
@@ -265,17 +309,51 @@ export default function ChatInput({
                 <Mic size={14} />
               </Button>
             ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleFileUpload}
-                className="absolute right-12 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-muted"
-                disabled={isLoading}
-                title="Upload files"
-              >
-                <Upload size={14} />
-              </Button>
+              <div className="absolute right-12 top-1/2 -translate-y-1/2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowUploadOptions(!showUploadOptions)}
+                  className="h-6 w-6 p-0 hover:bg-muted"
+                  disabled={isLoading}
+                  title="Upload files"
+                >
+                  <Upload size={14} />
+                </Button>
+                {showUploadOptions && (
+                  <div className="absolute bottom-full mb-2 right-0 bg-popover/95 backdrop-blur-sm border border-border/50 rounded-2xl shadow-xl p-2 z-20 min-w-[160px]">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        handleFileUpload();
+                        setShowUploadOptions(false);
+                      }}
+                      className="w-full justify-start text-xs h-8 rounded-xl hover:bg-muted/80"
+                      disabled={isLoading}
+                    >
+                      <Upload size={12} className="mr-2" />
+                      Upload from Device
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        handleUploadFromStorage();
+                        setShowUploadOptions(false);
+                      }}
+                      className="w-full justify-start text-xs h-8 rounded-xl hover:bg-muted/80"
+                      disabled={isLoading}
+                    >
+                      <Search size={12} className="mr-2" />
+                      Upload from Storage
+                    </Button>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Send button */}
@@ -367,6 +445,72 @@ export default function ChatInput({
               </div>
             </div>
           )}
+
+          {/* Storage file selector */}
+          {showStorageSelector && (
+            <div className="absolute bottom-full mb-2 right-0 bg-popover/95 backdrop-blur-sm border border-border/50 rounded-2xl shadow-xl p-3 z-20 min-w-[320px] max-h-[300px] overflow-y-auto">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium">Select from Storage</h3>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowStorageSelector(false)}
+                    className="h-6 w-6 p-0"
+                  >
+                    <X size={12} />
+                  </Button>
+                </div>
+
+                {/* Folders option */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowFilesDialog(true);
+                    setShowStorageSelector(false);
+                  }}
+                  className="w-full justify-start text-xs h-8 rounded-lg hover:bg-muted/80"
+                  disabled={isLoading}
+                >
+                  <svg viewBox="0 0 24 24" className="mr-2 h-3.5 w-3.5 opacity-70" aria-hidden>
+                    <path fill="currentColor" d="M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,8V18H4V6H10V4Z" />
+                  </svg>
+                  <span className="text-muted-foreground">Folders</span>
+                </Button>
+
+                {storageFiles.length > 0 ? (
+                  <div className="space-y-1">
+                    {storageFiles.map((file) => (
+                      <Button
+                        key={file.id}
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSelectStorageFile(file)}
+                        className="w-full justify-start text-xs h-8 rounded-lg hover:bg-muted/80"
+                        disabled={isLoading}
+                      >
+                        <svg viewBox="0 0 24 24" className="mr-2 h-3.5 w-3.5 opacity-70" aria-hidden>
+                          <path fill="currentColor" d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2Z M14,9V3.5L19.5,9H14Z" />
+                        </svg>
+                        <div className="flex-1 text-left">
+                          <div className="truncate max-w-[200px]">{file.name}</div>
+                          <div className="text-xs text-muted-foreground">{prettyBytes(file.size)}</div>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground text-sm">
+                    No files uploaded yet
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <p className="p-2 text-center text-xs text-zinc-400">
@@ -380,6 +524,15 @@ export default function ChatInput({
           </a>
         </p>
       </div>
+
+      <SeeAllFilesDialog
+        open={showFilesDialog}
+        onOpenChange={setShowFilesDialog}
+        onFileSelect={(file) => {
+          setAttachments(prev => [...prev, file]);
+          setShowFilesDialog(false);
+        }}
+      />
     </form>
   );
 }
