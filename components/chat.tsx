@@ -430,6 +430,7 @@ export default function Chat() {
       setIsAudioPaused(true);
       return;
     }
+  }, [isPlayingTTS, currentAudioRef]);
 
     if (action === 'resume' && currentlyPlayingMessageId === messageId && currentAudioRef.current && currentAudioRef.current.paused) {
       console.log('Resuming audio for message:', messageId);
