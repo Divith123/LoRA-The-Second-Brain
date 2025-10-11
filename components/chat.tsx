@@ -60,9 +60,12 @@ export default function Chat() {
   const [messages, setMessages] = useState<ExtendedMessage[]>([]);
   const [input, setInput] = useState("");
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const streamingContentRef = useRef<string>("");
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isUserNearBottom, setIsUserNearBottom] = useState(true);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [knowledgeSources, setKnowledgeSources] = useState<Array<{ title: string; date: string; content: string }>>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1146,6 +1149,8 @@ export default function Chat() {
 
     setMessages([]);
     setCurrentConversationId(null);
+    setShouldAutoScroll(true);
+    setIsUserNearBottom(true);
   };
 
   const saveConversation = async (messages: ExtendedMessage[], model: string) => {
@@ -1415,13 +1420,57 @@ export default function Chat() {
     }
   };
 
+  // Smart scroll management
+  const checkScrollPosition = useCallback(() => {
+    if (!chatContainerRef.current) return;
+    
+    const container = chatContainerRef.current;
+    const threshold = 100; // pixels from bottom
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+    
+    setIsUserNearBottom(isNearBottom);
+    setShouldAutoScroll(isNearBottom);
+  }, []);
+
+  const scrollToBottom = useCallback((force = false) => {
+    if (!messageEndRef.current) return;
+    
+    if (force || shouldAutoScroll) {
+      messageEndRef.current.scrollIntoView({ 
+        behavior: isStreaming ? "smooth" : "auto",
+        block: "end"
+      });
+    }
+  }, [shouldAutoScroll, isStreaming]);
+
+  // Smart scroll effect - only scroll when appropriate
   useEffect(() => {
-    // Small delay to ensure DOM updates are complete before scrolling
-    const timeoutId = setTimeout(() => {
-      messageEndRef.current?.scrollIntoView({ behavior: "auto" });
-    }, 50);
-    return () => clearTimeout(timeoutId);
-  }, [messages.length]);
+    if (shouldAutoScroll) {
+      // Small delay to ensure DOM updates are complete
+      const timeoutId = setTimeout(() => {
+        scrollToBottom();
+      }, 50);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [messages.length, streamingContent, scrollToBottom, shouldAutoScroll]);
+
+  // Scroll position monitoring
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      checkScrollPosition();
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [checkScrollPosition]);
+
+  // Initialize scroll position check
+  useEffect(() => {
+    checkScrollPosition();
+  }, [checkScrollPosition]);
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1543,7 +1592,10 @@ export default function Chat() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto pb-4 backdrop-blur-sm bg-background/80">
+      <div 
+        ref={chatContainerRef}
+        className="flex-1 overflow-y-auto pb-4 backdrop-blur-sm bg-background/80"
+      >
         {messages.map((m, i) => {
           const messageId = `${i}-${m.content?.toString().length || 0}`;
           const message = m as ExtendedMessage;
@@ -1759,6 +1811,28 @@ export default function Chat() {
           );
         })}
         <div ref={messageEndRef} />
+        
+        {/* Scroll to bottom button */}
+        {!isUserNearBottom && (
+          <div className="fixed bottom-24 right-6 z-10">
+            <Button
+              onClick={() => scrollToBottom(true)}
+              className="rounded-full h-10 w-10 p-0 shadow-lg bg-primary hover:bg-primary/90"
+              title="Scroll to bottom"
+            >
+              <svg 
+                viewBox="0 0 24 24" 
+                className="h-4 w-4" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2"
+              >
+                <path d="M7 13l3 3 3-3" />
+                <path d="M7 6l3 3 3-3" />
+              </svg>
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t flex items-start gap-2">

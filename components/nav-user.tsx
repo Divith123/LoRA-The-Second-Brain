@@ -2,13 +2,13 @@
 
 import {
   BadgeCheck,
-  Bell,
   ChevronsUpDown,
   CreditCard,
   LogOut,
   Settings,
   Sparkles,
-  User,
+  HelpCircle,
+  Megaphone,
   Users,
 } from "lucide-react";
 
@@ -198,17 +198,17 @@ export function NavUser() {
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem>
-                  <User className="h-4 w-4 mr-2" />
-                  Account
+                <DropdownMenuItem onClick={() => window.open('https://github.com/Divith123/LoRA-The-Second-Brain/wiki', '_blank')}>
+                  <HelpCircle className="h-4 w-4 mr-2" />
+                  Help & Support
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => window.location.href = '/whats-new'}>
+                  <Megaphone className="h-4 w-4 mr-2" />
+                  What&apos;s New
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setShowSettingsModal(true)}>
                   <Settings className="h-4 w-4 mr-2" />
                   Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Bell className="h-4 w-4 mr-2" />
-                  Notifications
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />

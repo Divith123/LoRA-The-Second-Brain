@@ -566,16 +566,27 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Blurred Background */}
+    <div className="fixed inset-0 z-[9999]">
+      {/* Solid Dark Overlay - completely covers everything */}
       <div
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/90"
         onClick={onClose}
       />
+      
+      {/* Blur Layer on top */}
+      <div
+        className="absolute inset-0 backdrop-blur-2xl"
+        onClick={onClose}
+        style={{ 
+          backdropFilter: 'blur(32px)',
+          WebkitBackdropFilter: 'blur(32px)'
+        }}
+      />
 
-      {/* Settings Modal */}
-      <div className="relative w-full max-w-6xl h-[90vh] bg-background border rounded-lg shadow-lg overflow-hidden">
-        <div className="flex h-full">
+      {/* Settings Modal (above everything) */}
+      <div className="relative z-10 flex items-center justify-center h-full">
+        <div className="w-full max-w-6xl h-[90vh] bg-background border rounded-lg shadow-lg overflow-hidden">
+          <div className="flex h-full">
           {/* Sidebar */}
           <div className="w-64 border-r bg-muted/30">
             <div className="p-6 border-b">
@@ -641,6 +652,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               {renderSectionContent()}
             </ScrollArea>
           </div>
+        </div>
         </div>
       </div>
 
