@@ -13,7 +13,7 @@ import { extractText } from '@/lib/file-processing';
 import { ProviderType } from "@/lib/model-types";
 import { DatabaseService } from "@/lib/database";
 import { EncryptedConversationStorage } from "@/lib/encrypted-conversation-storage";
-import { generateBarkSpeech, filterThinkingContent } from "@/lib/bark-tts";
+import { filterThinkingContent } from "@/lib/utils";
 
 let localInferenceService: any = null;
 
@@ -465,12 +465,53 @@ async function handleTextToSpeech(text: string, voice: string = 'af_bella', resp
       throw new Error('No speech content after filtering thinking patterns');
     }
 
-    // Use Bark TTS for open-source emotional speech
-    const result = await generateBarkSpeech(filteredText, voice);
+    // Get user's Groq API key
+    if (!userId) {
+      throw new Error('User ID is required for TTS');
+    }
 
-    console.log('Bark TTS generated successfully');
+    const apiKeys = await DatabaseService.getUserApiKeys(userId);
+    const groqApiKey = apiKeys?.groqApiKey;
 
-    return result;
+    if (!groqApiKey) {
+      throw new Error('Groq API key not configured. Please add your Groq API key in settings.');
+    }
+
+    // Call Groq TTS API
+    const response = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input: filteredText,
+        voice: 'alloy', // Groq supports: alloy, echo, fable, onyx, nova, shimmer
+        response_format: 'mp3',
+        speed: 1.0,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Groq TTS API error:', response.status, errorText);
+      throw new Error(`Groq TTS API error: ${response.status} - ${errorText}`);
+    }
+
+    // Get the audio data as array buffer
+    const audioBuffer = await response.arrayBuffer();
+
+    // Convert to base64
+    const base64Audio = Buffer.from(audioBuffer).toString('base64');
+
+    console.log('Groq TTS generated successfully, audio length:', base64Audio.length);
+
+    return {
+      audioData: base64Audio,
+      contentType: 'audio/mpeg',
+      fileName: `groq-tts-${Date.now()}.mp3`,
+    };
   } catch (error) {
     console.error('Error generating TTS:', error);
     throw error;
@@ -483,9 +524,9 @@ export async function handleTextToSpeechAction(text: string, voice?: string, res
 }
 
 // Handle ElevenLabs text-to-speech requests
-async function handleElevenLabsTextToSpeech(text: string, voiceId: string = 'af_bella', userId?: string) {
+async function handleElevenLabsTextToSpeech(text: string, voiceId: string = 'JkpEM0J2p7DL32VXnieS', userId?: string) {
   try {
-    console.log('ElevenLabs TTS Request:', { textLength: text.length, voiceId });
+    console.log('ElevenLabs TTS Request:', { textLength: text.length, voiceId, userId });
 
     // Filter thinking content from the text
     const filteredText = filterThinkingContent(text);
@@ -495,12 +536,55 @@ async function handleElevenLabsTextToSpeech(text: string, voiceId: string = 'af_
       throw new Error('No speech content after filtering thinking patterns');
     }
 
-    // Use Bark TTS for open-source emotional speech
-    const result = await generateBarkSpeech(filteredText, voiceId);
+    // Get user's ElevenLabs API key
+    if (!userId) {
+      throw new Error('User ID is required for ElevenLabs TTS');
+    }
 
-    console.log('Bark TTS generated successfully');
+    const apiKeys = await DatabaseService.getUserApiKeys(userId);
+    const elevenlabsApiKey = apiKeys?.elevenlabsApiKey;
 
-    return result;
+    if (!elevenlabsApiKey) {
+      throw new Error('ElevenLabs API key not configured. Please add your ElevenLabs API key in settings.');
+    }
+
+    // Call ElevenLabs API
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'audio/mpeg',
+        'Content-Type': 'application/json',
+        'xi-api-key': elevenlabsApiKey,
+      },
+      body: JSON.stringify({
+        text: filteredText,
+        model_id: 'eleven_monolingual_v1',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.5,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('ElevenLabs API error:', response.status, errorText);
+      throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
+    }
+
+    // Get the audio data as array buffer
+    const audioBuffer = await response.arrayBuffer();
+
+    // Convert to base64
+    const base64Audio = Buffer.from(audioBuffer).toString('base64');
+
+    console.log('ElevenLabs TTS generated successfully, audio length:', base64Audio.length);
+
+    return {
+      audioData: base64Audio,
+      contentType: 'audio/mpeg',
+      fileName: `elevenlabs-tts-${Date.now()}.mp3`,
+    };
   } catch (error) {
     console.error('Error generating ElevenLabs TTS:', error);
     throw error;
