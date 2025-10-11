@@ -402,7 +402,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <div className="bg-muted p-4 rounded-lg text-sm space-y-2">
                       <div className="font-medium">1. Install Ollama:</div>
                       <div className="font-mono text-xs bg-background p-2 rounded">
-                        # Download from: https://ollama.ai/download
+                        # Download from: https://ollama.com/download
                       </div>
 
                       <div className="font-medium">2. Start Ollama service:</div>
