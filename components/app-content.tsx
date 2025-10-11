@@ -36,6 +36,20 @@ const ModelContext = createContext<{
 
 export const useModel = () => useContext(ModelContext);
 
+// DeepSecure context to share selected media type with Nav and the DeepSecureAI page
+export const DeepSecureContext = createContext<{
+  mediaType: 'image' | 'video' | 'audio';
+  setMediaType: (t: 'image' | 'video' | 'audio') => void;
+} | null>(null);
+
+export const useDeepSecure = () => {
+  const ctx = useContext(DeepSecureContext);
+  if (!ctx) {
+    throw new Error('useDeepSecure must be used within DeepSecureContext');
+  }
+  return ctx;
+};
+
 // Create a context for file preview state
 const FilePreviewContext = createContext<{
   currentFileId: string | null;
@@ -88,6 +102,9 @@ function AppContentInner({ children }: AppContentProps) {
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+
+  // DeepSecure media type
+  const [deepMediaType, setDeepMediaType] = useState<'image' | 'video' | 'audio'>('image');
 
   // Initialize sidebar state from cookie
   const [sidebarOpen] = useState(() => {
@@ -218,12 +235,15 @@ function AppContentInner({ children }: AppContentProps) {
   }
 
   const isProfilePage = pathname === '/profile';
+  const isDeepSecurePage = pathname?.startsWith('/DeepSecureAI');
 
   return (
     <ModelContext.Provider value={{ currentModel, currentProvider, onModelChange: handleModelChange, onOpenFilesDialog: handleSeeAllFiles }}>
-      <FilePreviewContext.Provider value={{ currentFileId, setCurrentFileId }}>
+      <DeepSecureContext.Provider value={{ mediaType: deepMediaType, setMediaType: setDeepMediaType }}>
+        <FilePreviewContext.Provider value={{ currentFileId, setCurrentFileId }}>
         <SidebarProvider defaultOpen={sidebarOpen}>
-          {!isProfilePage && (
+          {/* Hide the sidebar for DeepSecureAI page specifically */}
+          {!isProfilePage && !isDeepSecurePage && (
             <AppSidebar
               onNewChat={handleNewChat}
               onSelectConversation={handleSelectConversation}
@@ -242,7 +262,7 @@ function AppContentInner({ children }: AppContentProps) {
             />
           )}
           <SidebarInset>
-            {!isProfilePage && <Nav />}
+            {!isProfilePage && <Nav showSidebar={!isDeepSecurePage} showMediaSelector={isDeepSecurePage} />}
             <Toaster position={"top-center"} richColors />
             <SystemCheck />
             {children}
@@ -278,6 +298,7 @@ function AppContentInner({ children }: AppContentProps) {
           onSelectConversation={handleSelectConversation}
         />
       </FilePreviewContext.Provider>
+      </DeepSecureContext.Provider>
     </ModelContext.Provider>
   );
 }

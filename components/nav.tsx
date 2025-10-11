@@ -6,6 +6,7 @@ import { useUser } from "./user-context";
 import { ModelSelector } from "./model-selector";
 import { useModel } from "./app-content";
 import { useState, useEffect } from "react";
+import { useDeepSecure } from "./app-content";
 import { DatabaseService } from "@/lib/database";
 import {
   DropdownMenu,
@@ -13,13 +14,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ExternalLink, User, Github } from "lucide-react";
+import { Button } from "./ui/button";
+import { ChevronDown } from "lucide-react";
+import { ExternalLink, User, Github, ArrowLeft, Image as ImageIcon, Video as VideoIcon, Music } from "lucide-react";
+import { useRouter } from "next/navigation";
 
-export default function Nav() {
+export default function Nav({ showSidebar = true, showMediaSelector = false }: { showSidebar?: boolean; showMediaSelector?: boolean }) {
   const { currentUser } = useUser();
   const { currentModel, onModelChange } = useModel();
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
-
+  const router = useRouter();
+  // Use shared deep secure media type state so the page and navbar stay in sync
+  const { mediaType, setMediaType } = useDeepSecure();
   // Load current user's avatar
   useEffect(() => {
     const loadUserAvatar = async () => {
@@ -37,11 +43,58 @@ export default function Nav() {
     loadUserAvatar();
   }, [currentUser]);
 
+
+
   return (
     <nav className="fixed flex w-full items-center bg-background p-6 md:bg-transparent z-40">
       <div className="flex items-center gap-4">
-        <SidebarTrigger className="h-8 w-8" />
-     <ModelSelector currentModel={currentModel} onModelChange={onModelChange} />
+        {showSidebar ? (
+          <SidebarTrigger className="h-8 w-8" />
+        ) : (
+          <button
+            type="button"
+            aria-label="Back to chats"
+            onClick={() => router.push('/')}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-muted"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+        )}
+        {showMediaSelector ? (
+          <div className="ml-2">
+            <label className="sr-only">Media type</label>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="flex items-center gap-2 h-8 px-3 text-sm font-medium hover:bg-muted/50 transition-colors">
+                  <span className="max-w-[140px] truncate font-semibold">{mediaType.charAt(0).toUpperCase() + mediaType.slice(1)}</span>
+                  <ChevronDown size={14} className="text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="min-w-[160px] bg-popover border-border rounded-2xl shadow-xl p-1">
+                <DropdownMenuItem asChild>
+                  <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('image')}>
+                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                    Image
+                  </button>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('video')}>
+                    <VideoIcon className="h-4 w-4 text-muted-foreground" />
+                    Video
+                  </button>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('audio')}>
+                    <Music className="h-4 w-4 text-muted-foreground" />
+                    Audio
+                  </button>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : (
+          <ModelSelector currentModel={currentModel} onModelChange={onModelChange} />
+        )}
       </div>
 
       {/* Fixed right side elements */}
