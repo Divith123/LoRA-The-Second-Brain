@@ -103,9 +103,10 @@ function AppContentInner({ children }: AppContentProps) {
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [deepMediaType, setDeepMediaType] = useState<'image' | 'video' | 'audio'>('image');
 
+  // Settings modal state
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   // Initialize sidebar state from cookie
   const [sidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -235,6 +236,7 @@ function AppContentInner({ children }: AppContentProps) {
   }
 
   const isProfilePage = pathname === '/profile';
+  const isDeepSecurePage = pathname?.startsWith('/DeepSecureAI');
   const isWhatsNewPage = pathname === '/whats-new';
 
   return (
@@ -242,7 +244,8 @@ function AppContentInner({ children }: AppContentProps) {
       <DeepSecureContext.Provider value={{ mediaType: deepMediaType, setMediaType: setDeepMediaType }}>
         <FilePreviewContext.Provider value={{ currentFileId, setCurrentFileId }}>
         <SidebarProvider defaultOpen={sidebarOpen}>
-          {!isProfilePage && !isWhatsNewPage && (
+          {/* Hide the sidebar for DeepSecureAI page and WhatsNew page specifically */}
+          {!isProfilePage && !isDeepSecurePage && !isWhatsNewPage && (
             <AppSidebar
               onNewChat={handleNewChat}
               onSelectConversation={handleSelectConversation}
@@ -262,7 +265,7 @@ function AppContentInner({ children }: AppContentProps) {
             />
           )}
           <SidebarInset>
-            {!isProfilePage && !isWhatsNewPage && <Nav />}
+            {!isProfilePage && !isWhatsNewPage && <Nav showSidebar={!isDeepSecurePage} showMediaSelector={isDeepSecurePage} hideLeftButtons={settingsModalOpen} />}
             <Toaster position={"top-center"} richColors />
             <SystemCheck />
             {children}
