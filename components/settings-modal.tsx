@@ -566,16 +566,21 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Blurred Background */}
+    <div className="fixed inset-0 z-[9999]">
+      {/* Blur Layer */}
       <div
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+        className="absolute inset-0 backdrop-blur-sm pointer-events-none"
         onClick={onClose}
+        style={{ 
+          backdropFilter: 'blur(3px)',
+          WebkitBackdropFilter: 'blur(3px)'
+        }}
       />
 
-      {/* Settings Modal */}
-      <div className="relative w-full max-w-6xl h-[90vh] bg-background border rounded-lg shadow-lg overflow-hidden">
-        <div className="flex h-full">
+      {/* Settings Modal (above everything) */}
+      <div className="relative z-20 flex items-center justify-center h-full" onClick={onClose}>
+        <div className="w-full max-w-6xl h-[90vh] bg-background border rounded-lg shadow-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="flex h-full">
           {/* Sidebar */}
           <div className="w-64 border-r bg-muted/30">
             <div className="p-6 border-b">

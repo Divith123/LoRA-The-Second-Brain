@@ -157,11 +157,11 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted p-4 relative">
       {/* Back to Home Button - positioned absolutely in top-left corner */}
-      <div className="fixed top-4 left-4 z-50">
+      <div className="fixed top-6 left-9 z-50">
         <Button
           onClick={() => router.push('/')}
           variant="outline"
-          className="flex items-center gap-2 bg-background/95 backdrop-blur-sm border-border/50 shadow-lg"
+          className="flex items-center gap-2 bg-popover/95 backdrop-blur-sm border-border/50 rounded-2xl shadow-xl"
         >
           <Home className="w-4 h-4" />
           Back to Home

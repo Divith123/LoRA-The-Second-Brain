@@ -132,7 +132,7 @@ export function SeeAllProjectsDialog({ open, onOpenChange }: SeeAllProjectsDialo
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="scrollbar-hide">
                       {projectCategories.map((category) => (
                         <SelectItem key={category} value={category}>
                           {category}

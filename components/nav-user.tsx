@@ -40,19 +40,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { SettingsModal } from "@/components/settings-modal";
 
-export function NavUser() {
+export function NavUser({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const { users, currentUser, logout, switchUser } = useUser();
   const { isMobile } = useSidebar();
   const router = useRouter();
+  const [userAvatars, setUserAvatars] = useState<Record<string, string | null>>({});
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [password, setPassword] = useState("");
   const [isSwitching, setIsSwitching] = useState(false);
   const [error, setError] = useState("");
-  const [userAvatars, setUserAvatars] = useState<Record<string, string | null>>({});
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Load current user's avatar
   useEffect(() => {
@@ -143,7 +141,7 @@ export function NavUser() {
               </SidebarMenuButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent
-              className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
+              className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-2xl bg-popover/95 backdrop-blur-sm border border-border/50 shadow-xl"
               side={isMobile ? "bottom" : "right"}
               align="end"
               sideOffset={4}
@@ -198,11 +196,15 @@ export function NavUser() {
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem>
-                  <User className="h-4 w-4 mr-2" />
-                  Account
+                <DropdownMenuItem onClick={() => window.open('https://github.com/Divith123/LoRA-The-Second-Brain/wiki', '_blank')}>
+                  <HelpCircle className="h-4 w-4 mr-2" />
+                  Help & Support
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowSettingsModal(true)}>
+                <DropdownMenuItem onClick={() => router.push('/whats-new')}>
+                  <Megaphone className="h-4 w-4 mr-2" />
+                  What&apos;s New
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onOpenSettings?.()}>
                   <Settings className="h-4 w-4 mr-2" />
                   Settings
                 </DropdownMenuItem>
@@ -254,11 +256,6 @@ export function NavUser() {
           </div>
         </DialogContent>
       </Dialog>
-
-      <SettingsModal
-        isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-      />
     </>
   );
 }

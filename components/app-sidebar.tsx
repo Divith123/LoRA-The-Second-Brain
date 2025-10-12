@@ -57,6 +57,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onSelectProject?: (projectId: string) => void;
   currentProjectId?: string | null;
   onAddToProject?: (conversationId: string) => void;
+  onOpenSettings?: () => void;
 }
 
 export function AppSidebar({
@@ -73,8 +74,8 @@ export function AppSidebar({
   onSeeAllProjects = () => {},
   onCreateProject = () => {},
   onSelectProject = () => {},
-  currentProjectId = null,
   onAddToProject = () => {},
+  onOpenSettings = () => {},
   ...props
 }: AppSidebarProps) {
   return (
@@ -123,7 +124,7 @@ export function AppSidebar({
         />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser />
+        <NavUser onOpenSettings={onOpenSettings} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
