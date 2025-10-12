@@ -13,12 +13,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ExternalLink, User, Github } from "lucide-react";
+import { ExternalLink, User, Github, ArrowLeft, ChevronDown, ImageIcon, VideoIcon, Music } from "lucide-react";
+import { Button } from "./ui/button";
+import { useRouter } from "next/navigation";
 
 export default function Nav({ showSidebar = true, showMediaSelector = false, hideLeftButtons = false }: { showSidebar?: boolean; showMediaSelector?: boolean; hideLeftButtons?: boolean }) {
   const { currentUser } = useUser();
   const { currentModel, onModelChange } = useModel();
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const router = useRouter();
+  const [mediaType, setMediaType] = useState('image');
 
   // Load current user's avatar
   useEffect(() => {

@@ -647,6 +647,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </ScrollArea>
           </div>
         </div>
+        </div>
       </div>
 
       {/* Delete Account Confirmation Dialog */}
