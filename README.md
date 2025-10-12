@@ -14,7 +14,7 @@ An open-source AI chatbot app that runs models locally using Ollama, supporting 
 ## Features
 
 - [Next.js](https://nextjs.org/) 14 App Router with React Server Components
-- Local AI model execution via [Ollama](https://ollama.ai/)
+- Local AI model execution via [Ollama](https://ollama.com/)
 - Dynamic model fetching from [Hugging Face](https://huggingface.co/)
 - Support for GGUF and H2O-Danube model formats
 - [shadcn/ui](https://ui.shadcn.com/) for UI components
@@ -44,7 +44,7 @@ This app uses Ollama to run AI models locally on your machine. Models are downlo
 
 ### Prerequisites
 
-1. **Install Ollama**: Download and install Ollama from [ollama.ai](https://ollama.ai/)
+1. **Install Ollama**: Download and install Ollama from [ollama.com](https://ollama.com/)
 2. **Start Ollama**: Run `ollama serve` in your terminal
 
 ### Setup

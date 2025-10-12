@@ -6,6 +6,7 @@ import { useUser } from "./user-context";
 import { ModelSelector } from "./model-selector";
 import { useModel } from "./app-content";
 import { useState, useEffect } from "react";
+import { useDeepSecure } from "./app-content";
 import { DatabaseService } from "@/lib/database";
 import {
   DropdownMenu,
@@ -40,6 +41,8 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
 
     loadUserAvatar();
   }, [currentUser]);
+
+
 
   return (
     <nav className="fixed flex w-full items-center bg-background p-6 md:bg-transparent z-40">
