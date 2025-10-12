@@ -6,6 +6,7 @@ import { useUser } from "./user-context";
 import { ModelSelector } from "./model-selector";
 import { useModel, useDeepSecure } from "./app-content";
 import { useState, useEffect } from "react";
+import { useDeepSecure } from "./app-content";
 import { DatabaseService } from "@/lib/database";
 import {
   DropdownMenu,
@@ -21,6 +22,9 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
   const { currentUser } = useUser();
   const { currentModel, onModelChange } = useModel();
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const router = useRouter();
+  // Use shared deep secure media type state so the page and navbar stay in sync
+  const { mediaType, setMediaType } = useDeepSecure();
   const router = useRouter();
   // Use shared deep secure media type state so the page and navbar stay in sync
   const { mediaType, setMediaType } = useDeepSecure();
@@ -40,6 +44,8 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
 
     loadUserAvatar();
   }, [currentUser]);
+
+
 
 
 
