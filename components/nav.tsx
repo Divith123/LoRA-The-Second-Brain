@@ -4,7 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { SidebarTrigger } from "./ui/sidebar";
 import { useUser } from "./user-context";
 import { ModelSelector } from "./model-selector";
-import { useModel } from "./app-content";
+import { useModel, useDeepSecure } from "./app-content";
 import { useState, useEffect } from "react";
 import { DatabaseService } from "@/lib/database";
 import {
@@ -13,8 +13,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ExternalLink, User, Github, ArrowLeft, ChevronDown, ImageIcon, VideoIcon, Music } from "lucide-react";
 import { Button } from "./ui/button";
+import { ChevronDown, ExternalLink, User, Github, ArrowLeft, Image as ImageIcon, Video as VideoIcon, Music } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function Nav({ showSidebar = true, showMediaSelector = false, hideLeftButtons = false }: { showSidebar?: boolean; showMediaSelector?: boolean; hideLeftButtons?: boolean }) {
@@ -22,8 +22,8 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
   const { currentModel, onModelChange } = useModel();
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const router = useRouter();
-  const [mediaType, setMediaType] = useState('image');
-
+  // Use shared deep secure media type state so the page and navbar stay in sync
+  const { mediaType, setMediaType } = useDeepSecure();
   // Load current user's avatar
   useEffect(() => {
     const loadUserAvatar = async () => {
@@ -40,6 +40,8 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
 
     loadUserAvatar();
   }, [currentUser]);
+
+
 
   return (
     <nav className="fixed flex w-full items-center bg-background p-6 md:bg-transparent z-40">

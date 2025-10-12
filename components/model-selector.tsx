@@ -191,7 +191,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                     size="sm"
                     onClick={() => {
                       // Open Ollama download page
-                      window.open('https://ollama.ai/download', '_blank');
+                      window.open('https://ollama.com/download', '_blank');
                     }}
                     className="flex-1"
                   >
@@ -202,7 +202,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                     size="sm"
                     onClick={() => {
                       // Copy installation command
-                      navigator.clipboard.writeText('curl -fsSL https://ollama.ai/install.sh | sh');
+                      navigator.clipboard.writeText('curl -fsSL https://ollama.com/install.sh | sh');
                       toast.success('Installation command copied to clipboard');
                     }}
                     className="flex-1"
@@ -211,7 +211,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                   </Button>
                 </div>
                 <div className="mt-3 p-3 bg-muted rounded text-xs font-mono">
-                  <div>curl -fsSL https://ollama.ai/install.sh | sh</div>
+                  <div>curl -fsSL https://ollama.com/install.sh | sh</div>
                   <div className="mt-1 text-muted-foreground">Run this in your terminal to install Ollama</div>
                 </div>
               </div>

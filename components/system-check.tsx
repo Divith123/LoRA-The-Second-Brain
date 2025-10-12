@@ -25,11 +25,11 @@ export function SystemCheck({ onComplete }: SystemCheckProps) {
   }, [isLoading]);
 
   const handleInstallOllama = () => {
-    window.open('https://ollama.ai/download', '_blank');
+    window.open('https://ollama.com/download', '_blank');
   };
 
   const handleCopyCommand = () => {
-    navigator.clipboard.writeText('curl -fsSL https://ollama.ai/install.sh | sh');
+    navigator.clipboard.writeText('curl -fsSL https://ollama.com/install.sh | sh');
     toast.success('Installation command copied to clipboard');
   };
 
@@ -113,7 +113,7 @@ export function SystemCheck({ onComplete }: SystemCheckProps) {
                 </Button>
               </div>
               <div className="text-xs font-mono bg-background p-2 rounded border">
-                curl -fsSL https://ollama.ai/install.sh | sh
+                curl -fsSL https://ollama.com/install.sh | sh
               </div>
               <p className="text-xs text-muted-foreground mt-2">
                 Run this command in your terminal, then restart this app.

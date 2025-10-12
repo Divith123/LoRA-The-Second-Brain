@@ -17,7 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useConversation } from "./conversation-context";
 import { useModel, useFilePreview } from "./app-content";
-import { Pin, MoreVertical, Volume2, Clock, Search, BookOpen, ChevronDown, Pause, Mic, Globe } from "lucide-react";
+import { Pin, MoreVertical, Volume2, Clock, Search, BookOpen, ChevronDown, Pause, Mic, Globe, ShieldCheck } from "lucide-react";
 import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
@@ -64,7 +64,7 @@ export default function Chat() {
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [knowledgeSources, setKnowledgeSources] = useState<Array<{title: string; date: string; content: string}>>([]);
+  const [knowledgeSources, setKnowledgeSources] = useState<Array<{ title: string; date: string; content: string }>>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlayingTTS, setIsPlayingTTS] = useState(false);
   const [currentlyPlayingMessageId, setCurrentlyPlayingMessageId] = useState<string | null>(null);
@@ -111,14 +111,14 @@ export default function Chat() {
           const parsedState = JSON.parse(stored) as Record<string, { audioData: string; contentType: string }>;
           // Recreate audio URLs from stored base64 data
           const restoredState: Record<string, { audioData: string; contentType: string; audioUrl?: string }> = {};
-          
+
           Object.entries(parsedState).forEach(([messageId, audioData]) => {
             try {
               // Convert base64 back to blob and create URL
               const audioDataBytes = Uint8Array.from(atob(audioData.audioData), c => c.charCodeAt(0));
               const audioBlob = new Blob([audioDataBytes], { type: audioData.contentType });
               const audioUrl = URL.createObjectURL(audioBlob);
-              
+
               restoredState[messageId] = {
                 audioData: audioData.audioData,
                 contentType: audioData.contentType,
@@ -128,7 +128,7 @@ export default function Chat() {
               console.warn(`Failed to restore audio for message ${messageId}:`, error);
             }
           });
-          
+
           setPreGeneratedAudio(restoredState);
           console.log('✅ Restored pre-generated audio from localStorage:', Object.keys(restoredState).length, 'items');
         }
@@ -201,7 +201,7 @@ export default function Chat() {
     currentConversationId: string | undefined,
     password?: string,
     maxResults: number = 5
-  ): Promise<{ formattedText: string; sources: Array<{title: string; date: string; content: string}> }> => {
+  ): Promise<{ formattedText: string; sources: Array<{ title: string; date: string; content: string }> }> => {
     try {
       // Get all conversations for the user
       const conversations = await DatabaseService.getConversationsByUserId(userId);
@@ -210,7 +210,7 @@ export default function Chat() {
       const otherConversations = conversations.filter(conv => conv.id !== currentConversationId);
 
       const relevantSnippets: string[] = [];
-      const sources: Array<{title: string; date: string; content: string}> = [];
+      const sources: Array<{ title: string; date: string; content: string }> = [];
 
       for (const conversation of otherConversations.slice(0, 20)) { // Limit to recent 20 conversations for performance
         try {
@@ -836,7 +836,7 @@ export default function Chat() {
               };
 
               // Mark as playing
-              currentAudioRef.current = { pause: () => speechSynthesis.cancel(), play: () => {} } as any;
+              currentAudioRef.current = { pause: () => speechSynthesis.cancel(), play: () => { } } as any;
 
               speechSynthesis.speak(utterance);
             } catch (speechError) {
@@ -1335,7 +1335,7 @@ export default function Chat() {
       if (isImageRequest) {
         setIsGeneratingImage(true);
       }
-      
+
       // show typing bubble
       const messagesWithAssistant = [
         ...newMessages,
@@ -1351,9 +1351,9 @@ export default function Chat() {
       const messagesToSend = fileListText ? [{ role: 'system' as const, content: fileListText }, ...newMessages] : newMessages;
 
       // pass fileIds to RAG-enabled server action (server will run retrieval internally)
-      const result = await continueConversation(messagesToSend, model, currentProvider || 'ollama', { 
+      const result = await continueConversation(messagesToSend, model, currentProvider || 'ollama', {
         fileIds,
-        mode: undefined 
+        mode: undefined
       });
 
       setIsStreaming(true);
@@ -1383,19 +1383,19 @@ export default function Chat() {
             sources: knowledgeSources
           }
         };
-        
+
         // Store knowledge sources in localStorage for persistence
         const knowledgeKey = `${currentConversationId || 'new'}-knowledge-${updated.length - 1}`;
         localStorage.setItem(knowledgeKey, JSON.stringify({
           used: knowledgeSources.length > 0,
           sources: knowledgeSources
         }));
-        
+
         // TTS pre-generation disabled to prevent excessive API calls
         // const { response } = parseAssistantContent(finalAssistantContent, false);
         // const messageId = `${updated.length - 1}-${response.length}`;
         // preGenerateTTS(messageId, response);
-        
+
         return updated;
       });
 
@@ -1489,13 +1489,13 @@ export default function Chat() {
               size="sm"
               className="h-10 w-10 p-0 rounded-lg border bg-background hover:bg-muted shrink-0"
               disabled={isLoading}
-              title="Web search"
+              title="DeepSecureAI"
               onClick={() => {
-                // TODO: Implement web search functionality
-                console.log("Web search clicked");
+                // Navigate to the DeepSecureAI page for deepfake detection tools
+                router.push('/DeepSecureAI');
               }}
             >
-              <Globe size={16} />
+              <ShieldCheck size={16} />
             </Button>
             <Button
               type="button"
@@ -1636,9 +1636,9 @@ export default function Chat() {
                     // Always parse thinking content for consistent display
                     const { think, response } = isCurrentlyStreaming
                       ? (() => {
-                          const { isThinking, thinkContent, responseContent } = parseStreamingContent(content);
-                          return { think: isThinking ? thinkContent : '', response: responseContent };
-                        })()
+                        const { isThinking, thinkContent, responseContent } = parseStreamingContent(content);
+                        return { think: isThinking ? thinkContent : '', response: responseContent };
+                      })()
                       : parseAssistantContent(content, false);
 
                     return (
@@ -1685,7 +1685,7 @@ export default function Chat() {
                         size="sm"
                         onClick={() => {
                           console.log('🎵 Speaker button clicked for messageId:', responseMessageId, 'currentlyPlaying:', currentlyPlayingMessageId, 'isPlaying:', isPlayingTTS, 'isPaused:', isAudioPaused);
-                          
+
                           if (currentlyPlayingMessageId === responseMessageId && isPlayingTTS) {
                             // Currently playing this message - pause it
                             handleTextToSpeech(response, responseMessageId, 'pause');
@@ -1706,10 +1706,10 @@ export default function Chat() {
                           currentlyPlayingMessageId === responseMessageId && isPlayingTTS && !isAudioPaused
                             ? "Pause audio"
                             : currentlyPlayingMessageId === responseMessageId && isAudioPaused
-                            ? "Resume audio"
-                            : preGeneratedAudio[responseMessageId]
-                            ? "Listen to this message (pre-generated)"
-                            : "Listen to this message"
+                              ? "Resume audio"
+                              : preGeneratedAudio[responseMessageId]
+                                ? "Listen to this message (pre-generated)"
+                                : "Listen to this message"
                         }
                       >
                         {currentlyPlayingMessageId === responseMessageId && isPlayingTTS && !isAudioPaused ? (
@@ -1731,16 +1731,16 @@ export default function Chat() {
                           return false;
                         }
                       })() && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleExportPdf(m.content as string, (messages[i - 1] as ExtendedMessage)?.content as string)}
-                          className="h-6 w-6 p-0 ml-1 opacity-60 hover:opacity-100"
-                          title="Export this deep research response as PDF"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6v12H4V4a2 2 0 0 1 2-2h8z"/></svg>
-                        </Button>
-                      )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleExportPdf(m.content as string, (messages[i - 1] as ExtendedMessage)?.content as string)}
+                            className="h-6 w-6 p-0 ml-1 opacity-60 hover:opacity-100"
+                            title="Export this deep research response as PDF"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6v12H4V4a2 2 0 0 1 2-2h8z" /></svg>
+                          </Button>
+                        )}
 
                       <Button
                         variant="ghost"
@@ -1749,7 +1749,7 @@ export default function Chat() {
                         className="h-6 w-6 p-0 ml-2 opacity-60 hover:opacity-100"
                         title="Copy assistant text"
                       >
-                        <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        <svg viewBox="0 0 24 24" className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
                       </Button>
                     </div>
                   )}
@@ -1780,13 +1780,13 @@ export default function Chat() {
             size="sm"
             className="h-10 w-10 p-0 rounded-lg border bg-background hover:bg-muted shrink-0"
             disabled={isLoading}
-            title="Web search"
+            title="DeepSecureAI"
             onClick={() => {
-              // TODO: Implement web search functionality
-              console.log("Web search clicked");
+              // Navigate to the DeepSecureAI page for deepfake detection tools
+              router.push('/DeepSecureAI');
             }}
           >
-            <Globe size={16} />
+            <ShieldCheck size={16} />
           </Button>
           <Button
             type="button"
