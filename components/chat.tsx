@@ -1,5 +1,4 @@
 "use client";
-
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { type CoreMessage } from "ai";
@@ -59,10 +58,46 @@ export default function Chat() {
   const updateConversationMutation = useUpdateConversation();
   const [messages, setMessages] = useState<ExtendedMessage[]>([]);
   const [input, setInput] = useState("");
-  const messageEndRef = useRef<HTMLDivElement>(null);
+  // messageEndRef replaced by endRef for new scroll sentinel
   const streamingContentRef = useRef<string>("");
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
+  // ---- auto-scroll plumbing ----
+  const scrollWrapRef = useRef<HTMLDivElement | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  const isNearBottomCustom = useCallback(() => {
+    const el = scrollWrapRef.current;
+    if (!el) return true;
+    const threshold = 64; // px
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
+  const scrollToEnd = useCallback((smooth: boolean = true) => {
+    endRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+  }, []);
+
+  // Auto-scroll on new content when enabled
+  useEffect(() => {
+    if (autoScroll) scrollToEnd(true);
+  }, [messages.length, streamingContent, isStreaming, autoScroll, scrollToEnd]);
+
+  // Track user scroll to pause/resume auto-scroll
+  useEffect(() => {
+    const el = scrollWrapRef.current;
+    if (!el) return;
+
+    const onScroll = () => {
+      const atBottom = isNearBottomCustom();
+      setAutoScroll(atBottom);
+      setShowJumpToLatest(!atBottom);
+    };
+
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [isNearBottomCustom]);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [knowledgeSources, setKnowledgeSources] = useState<Array<{ title: string; date: string; content: string }>>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -82,15 +117,7 @@ export default function Chat() {
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   // Voice modal state
   const [showVoiceModal, setShowVoiceModal] = useState(false);
-  // Auto-scroll state management
-  const [showScrollButton, setShowScrollButton] = useState(false);
-  const [isUserScrolling, setIsUserScrolling] = useState(false);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  // Extra bottom spacer to leave visual space after generated content
-  const bottomSpacerRef = useRef<HTMLDivElement>(null);
-  const [bottomSpacerHeight, setBottomSpacerHeight] = useState<number>(0);
+  // (old scrollContainerRef logic removed in favor of scrollWrapRef/endRef)
 
   // Helper function to update pre-generated audio with localStorage persistence
   const updatePreGeneratedAudio = useCallback((updater: (prev: Record<string, { audioData: string; contentType: string; audioUrl?: string }>) => Record<string, { audioData: string; contentType: string; audioUrl?: string }>) => {
@@ -327,6 +354,17 @@ export default function Chat() {
       }
       return newState;
     });
+  }, []);
+
+  // Auto-scroll helper functions
+  // legacy scroll helpers removed
+
+  // Helper function to check if content has enough paragraphs for auto-scroll
+  const shouldAutoScroll = useCallback((content: string) => {
+    if (!content) return false;
+    // Count paragraphs by splitting on double newlines or single newlines followed by non-whitespace
+    const paragraphs = content.split(/\n\s*\n|\n(?=\S)/).filter(p => p.trim().length > 0);
+    return paragraphs.length >= 3; // Enable auto-scroll after 3+ paragraphs
   }, []);
 
   const getKnowledgeState = useCallback((messageId: string) => knowledgeStates[messageId] ?? false, [knowledgeStates]);
@@ -1280,6 +1318,9 @@ export default function Chat() {
 
         setIsStreaming(true);
         setIsLoading(true);
+  // Reset auto-scroll state for new streaming session
+  setAutoScroll(true);
+  setShowJumpToLatest(false);
         let finalAssistantContent = "";
 
         // Convert File to base64
@@ -1298,7 +1339,9 @@ export default function Chat() {
 
         setIsStreaming(false);
         setIsLoading(false);
-        setStreamingContent("");
+  setStreamingContent("");
+  // Hide jump-to-latest button when streaming ends
+  setShowJumpToLatest(false);
 
         // Finalize assistant message
         setMessages((prev) => {
@@ -1367,6 +1410,9 @@ export default function Chat() {
 
       setIsStreaming(true);
       setIsLoading(true);
+  // Reset auto-scroll state for new streaming session
+  setAutoScroll(true);
+  setShowJumpToLatest(false);
       let finalAssistantContent = "";
 
       streamingContentRef.current = "";
@@ -1424,109 +1470,32 @@ export default function Chat() {
     }
   };
 
-  // Check if user is near bottom of scroll
-  const isNearBottom = useCallback(() => {
-    if (!messagesContainerRef.current) return true;
-    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
-    const threshold = 150; // pixels from bottom
-    return scrollHeight - scrollTop - clientHeight < threshold;
-  }, []);
-
-  // Smooth scroll to bottom
-  const scrollToBottom = useCallback((behavior: 'smooth' | 'auto' = 'smooth', extraSpace = true) => {
-    // Prefer scrolling to the bottom spacer if available and requested
-    const target = (extraSpace && bottomSpacerRef.current) ? bottomSpacerRef.current : messageEndRef.current;
-    if (target) {
-      target.scrollIntoView({ behavior, block: 'end' });
-    }
-  }, []);
-
-  // Handle scroll events to detect user scrolling
-  const handleScroll = useCallback(() => {
-    if (!messagesContainerRef.current) return;
-
-    const nearBottom = isNearBottom();
-    
-    // Show/hide scroll button based on position
-    setShowScrollButton(!nearBottom);
-    
-    // If user scrolls near bottom, resume auto-scroll
-    if (nearBottom) {
-      setShouldAutoScroll(true);
-      setIsUserScrolling(false);
-    } else if (isStreaming) {
-      // If streaming and user scrolls up, stop auto-scroll
-      setShouldAutoScroll(false);
-      setIsUserScrolling(true);
-    }
-  }, [isNearBottom, isStreaming]);
-
-  // Handle scroll button click
-  const handleScrollButtonClick = useCallback(() => {
-    setShouldAutoScroll(true);
-    setIsUserScrolling(false);
-    scrollToBottom('smooth');
-  }, [scrollToBottom]);
-
-  // Auto-scroll during streaming
+  // Auto-scroll logic for streaming content
   useEffect(() => {
-    if (isStreaming && shouldAutoScroll && !isUserScrolling) {
-      // Clear any existing timeout
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
+    if (isStreaming && streamingContent && autoScroll) {
+      const hasEnoughContent = shouldAutoScroll(streamingContent);
+      if (hasEnoughContent) {
+        const timeoutId = setTimeout(() => {
+          if (isNearBottomCustom()) {
+            scrollToEnd(false); // Smooth scroll during streaming
+          }
+        }, 100); // Slightly longer delay for streaming
+        return () => clearTimeout(timeoutId);
       }
-      
-      // Debounce scroll to avoid too many scroll calls
-      scrollTimeoutRef.current = setTimeout(() => {
-        // Scroll to bottom spacer (leave extra visual room)
-        scrollToBottom('smooth', true);
-      }, 100);
     }
+  }, [streamingContent, isStreaming, autoScroll, shouldAutoScroll, isNearBottomCustom, scrollToEnd]);
 
-    return () => {
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-      }
-    };
-  }, [streamingContent, isStreaming, shouldAutoScroll, isUserScrolling, scrollToBottom]);
-
-  // Scroll to bottom when new messages arrive (non-streaming)
+  // Traditional scroll for message completion
   useEffect(() => {
     if (!isStreaming && messages.length > 0) {
-      // Small delay to ensure DOM updates are complete
       const timeoutId = setTimeout(() => {
-        // When not streaming, scroll to spacer if auto-scroll enabled to leave extra room
-        scrollToBottom('auto', shouldAutoScroll);
-        setShouldAutoScroll(true);
-        setIsUserScrolling(false);
+        scrollToEnd(false);
       }, 50);
       return () => clearTimeout(timeoutId);
     }
-  }, [messages.length, isStreaming, scrollToBottom]);
+  }, [messages.length, isStreaming, scrollToEnd]);
 
-  // Increase bottom spacer while streaming for better UX, then reduce shortly after
-  useEffect(() => {
-    if (isStreaming) {
-      // expand spacer to ~200px for comfortable reading space
-      setBottomSpacerHeight(200);
-    } else {
-      // shrink spacer after a short delay so user sees final content with extra padding
-      const t = setTimeout(() => setBottomSpacerHeight(40), 600);
-      return () => clearTimeout(t);
-    }
-  }, [isStreaming]);
-
-  // Attach scroll listener to messages container
-  useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-    };
-  }, [handleScroll]);
+  // scroll event listener is attached to scrollWrapRef in the auto-scroll effect above
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1648,12 +1617,21 @@ export default function Chat() {
         </div>
       )}
 
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto pb-4 backdrop-blur-sm bg-background/80 scroll-smooth">
+      {/* Messages scroll area */}
+      <div
+        ref={scrollWrapRef}
+        className="relative flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 pb-4 backdrop-blur-sm bg-background/80"
+      >
         {messages.map((m, i) => {
           const messageId = `${i}-${m.content?.toString().length || 0}`;
           const message = m as ExtendedMessage;
-          const { think, response } = parseAssistantContent(m.content as string, false);
-          const responseMessageId = `${i}-${response.length}`;
+          // ✅ show streaming text only in the LAST assistant bubble being streamed
+          const isCurrentlyStreaming = isStreaming && i === messages.length - 1 && m.role === "assistant";
+
+          const displayContent = isCurrentlyStreaming ? (streamingContent as string) : (m.content as string);
+
+          const { think, response } = parseAssistantContent(displayContent, false);
+          const responseMessageId = `${i}-${String(response || displayContent).length}`;
           return (
             <div key={messageId} className={cn("mb-4 p-2", m.role === "user" ? "flex justify-end" : "flex justify-start")}>
               <div className={cn("flex items-start", m.role === "user" ? "flex-row-reverse" : "flex-row")}>
@@ -1863,21 +1841,24 @@ export default function Chat() {
             </div>
           );
         })}
-        <div ref={messageEndRef} />
-        {/* Extra spacer so auto-scroll can leave visual room after generation */}
-        <div ref={bottomSpacerRef} style={{ height: bottomSpacerHeight }} />
+
+        {/* sentinel for scroll-to-bottom */}
+        <div ref={endRef} />
       </div>
 
-      {/* Scroll to bottom button - appears when user scrolls up */}
-      {showScrollButton && (
-        <Button
-          onClick={handleScrollButtonClick}
-          className="fixed bottom-24 right-8 z-50 h-10 w-10 rounded-full p-0 shadow-lg transition-all duration-300 ease-in-out hover:scale-110"
-          size="sm"
-          title="Scroll to bottom"
+      {/* Jump to latest FAB */}
+      {showJumpToLatest && (
+        <button
+          type="button"
+          onClick={() => {
+            setAutoScroll(true);
+            scrollToEnd(true);
+          }}
+          className="fixed bottom-24 right-4 z-20 rounded-full border bg-background/90 px-3 py-2 shadow-md hover:bg-background transition"
+          title="Jump to latest"
         >
-          <ChevronDown className="h-5 w-5 animate-bounce" />
-        </Button>
+          ↓
+        </button>
       )}
 
       <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t flex items-start gap-2">

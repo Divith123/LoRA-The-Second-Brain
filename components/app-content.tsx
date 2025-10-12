@@ -51,20 +51,6 @@ export const useDeepSecure = () => {
   return ctx;
 };
 
-// DeepSecure context to share selected media type with Nav and the DeepSecureAI page
-export const DeepSecureContext = createContext<{
-  mediaType: 'image' | 'video' | 'audio';
-  setMediaType: (t: 'image' | 'video' | 'audio') => void;
-} | null>(null);
-
-export const useDeepSecure = () => {
-  const ctx = useContext(DeepSecureContext);
-  if (!ctx) {
-    throw new Error('useDeepSecure must be used within DeepSecureContext');
-  }
-  return ctx;
-};
-
 // Create a context for file preview state
 const FilePreviewContext = createContext<{
   currentFileId: string | null;
@@ -257,8 +243,6 @@ function AppContentInner({ children }: AppContentProps) {
     <ModelContext.Provider value={{ currentModel, currentProvider, onModelChange: handleModelChange, onOpenFilesDialog: handleSeeAllFiles }}>
       <DeepSecureContext.Provider value={{ mediaType: deepMediaType, setMediaType: setDeepMediaType }}>
         <FilePreviewContext.Provider value={{ currentFileId, setCurrentFileId }}>
-      <DeepSecureContext.Provider value={{ mediaType: deepMediaType, setMediaType: setDeepMediaType }}>
-        <FilePreviewContext.Provider value={{ currentFileId, setCurrentFileId }}>
         <SidebarProvider defaultOpen={sidebarOpen}>
           {/* Hide the sidebar for DeepSecureAI page and WhatsNew page specifically */}
           {!isProfilePage && !isDeepSecurePage && !isWhatsNewPage && (
@@ -321,7 +305,6 @@ function AppContentInner({ children }: AppContentProps) {
           onClose={() => setSettingsModalOpen(false)}
         />
       </FilePreviewContext.Provider>
-      </DeepSecureContext.Provider>
       </DeepSecureContext.Provider>
     </ModelContext.Provider>
   );
