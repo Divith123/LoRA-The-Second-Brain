@@ -402,9 +402,12 @@ export default function Chat() {
 
       console.log('🎵 Pre-generating TTS for cleaned text:', cleanText.substring(0, 50) + '...');
 
+      // Get user API keys for TTS
+      const apiKeys = currentUser?.id ? await DatabaseService.getUserApiKeys(currentUser.id) : null;
+
       // Try ElevenLabs TTS first (primary)
       try {
-        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(cleanText, 'JkpEM0J2p7DL32VXnieS', currentUser?.id);
+        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(cleanText, undefined, apiKeys?.elevenlabsApiKey);
 
         // Convert base64 to blob and create URL for instant playback
         const audioData = Uint8Array.from(atob(elevenLabsResult.audioData), c => c.charCodeAt(0));
@@ -434,7 +437,7 @@ export default function Chat() {
             .replace(/^Let me think[\s\S]*?(?=\n\n|\n[A-Z]|$)/im, '') // Remove "Let me think" sections
             .trim();
 
-          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', currentUser?.id);
+          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', apiKeys?.groqApiKey);
 
           // Convert base64 to blob and create URL for instant playback
           const audioData = Uint8Array.from(atob(result.audioData), c => c.charCodeAt(0));
@@ -637,9 +640,12 @@ export default function Chat() {
 
       console.log('Generating TTS for text:', filteredText.substring(0, 100) + '...');
 
+      // Get user API keys for TTS
+      const apiKeys = currentUser?.id ? await DatabaseService.getUserApiKeys(currentUser.id) : null;
+
       try {
         // Try ElevenLabs TTS API first (primary)
-        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(filteredText, 'JkpEM0J2p7DL32VXnieS', currentUser?.id);
+        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(filteredText, undefined, apiKeys?.elevenlabsApiKey);
 
         // Convert base64 to blob and play
         try {
@@ -743,7 +749,7 @@ export default function Chat() {
 
         try {
           // Try Groq TTS API
-          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', currentUser?.id);
+          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', apiKeys?.groqApiKey);
 
           // Convert base64 to blob and play
           const audioData = Uint8Array.from(atob(result.audioData), c => c.charCodeAt(0));

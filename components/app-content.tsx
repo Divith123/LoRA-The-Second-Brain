@@ -39,8 +39,8 @@ export const useModel = () => useContext(ModelContext);
 
 // DeepSecure context to share selected media type with Nav and the DeepSecureAI page
 export const DeepSecureContext = createContext<{
-  mediaType: 'image' | 'video' | 'audio';
-  setMediaType: (t: 'image' | 'video' | 'audio') => void;
+  mediaType: 'image' | 'video' | 'audio' | 'ai-generated-image';
+  setMediaType: (t: 'image' | 'video' | 'audio' | 'ai-generated-image') => void;
 } | null>(null);
 
 export const useDeepSecure = () => {
@@ -103,7 +103,7 @@ function AppContentInner({ children }: AppContentProps) {
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [deepMediaType, setDeepMediaType] = useState<'image' | 'video' | 'audio'>('image');
+  const [deepMediaType, setDeepMediaType] = useState<'image' | 'video' | 'audio' | 'ai-generated-image'>('image');
 
   // Settings modal state
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
