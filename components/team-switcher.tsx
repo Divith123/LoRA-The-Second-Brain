@@ -24,8 +24,8 @@ export function TeamSwitcher({
   const [activeTeam, setActiveTeam] = React.useState(teams[0]);
 
   const handleClick = () => {
-    // Don't navigate, just show it's clickable
-    console.log('Team switcher clicked');
+    // Navigate to About page for LoRA project
+    router.push('/about');
   };
 
   return (

@@ -236,14 +236,15 @@ function AppContentInner({ children }: AppContentProps) {
 
   const isProfilePage = pathname === '/profile';
   const isDeepSecurePage = pathname?.startsWith('/DeepSecureAI');
+  const isAboutPage = pathname === '/about';
 
   return (
     <ModelContext.Provider value={{ currentModel, currentProvider, onModelChange: handleModelChange, onOpenFilesDialog: handleSeeAllFiles }}>
       <DeepSecureContext.Provider value={{ mediaType: deepMediaType, setMediaType: setDeepMediaType }}>
         <FilePreviewContext.Provider value={{ currentFileId, setCurrentFileId }}>
         <SidebarProvider defaultOpen={sidebarOpen}>
-          {/* Hide the sidebar for DeepSecureAI page specifically */}
-          {!isProfilePage && !isDeepSecurePage && (
+          {/* Hide the sidebar for DeepSecureAI and About pages */}
+          {!isProfilePage && !isDeepSecurePage && !isAboutPage && (
             <AppSidebar
               onNewChat={handleNewChat}
               onSelectConversation={handleSelectConversation}
@@ -262,7 +263,7 @@ function AppContentInner({ children }: AppContentProps) {
             />
           )}
           <SidebarInset>
-            {!isProfilePage && <Nav showSidebar={!isDeepSecurePage} showMediaSelector={isDeepSecurePage} />}
+            {!isProfilePage && !isAboutPage && <Nav showSidebar={!isDeepSecurePage} showMediaSelector={isDeepSecurePage} />}
             <Toaster position={"top-center"} richColors />
             <SystemCheck />
             {children}
