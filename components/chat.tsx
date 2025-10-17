@@ -1,5 +1,4 @@
 "use client";
-
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { type CoreMessage } from "ai";
@@ -59,10 +58,46 @@ export default function Chat() {
   const updateConversationMutation = useUpdateConversation();
   const [messages, setMessages] = useState<ExtendedMessage[]>([]);
   const [input, setInput] = useState("");
-  const messageEndRef = useRef<HTMLDivElement>(null);
+  // messageEndRef replaced by endRef for new scroll sentinel
   const streamingContentRef = useRef<string>("");
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
+  // ---- auto-scroll plumbing ----
+  const scrollWrapRef = useRef<HTMLDivElement | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  const isNearBottomCustom = useCallback(() => {
+    const el = scrollWrapRef.current;
+    if (!el) return true;
+    const threshold = 64; // px
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
+  const scrollToEnd = useCallback((smooth: boolean = true) => {
+    endRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+  }, []);
+
+  // Auto-scroll on new content when enabled
+  useEffect(() => {
+    if (autoScroll) scrollToEnd(true);
+  }, [messages.length, streamingContent, isStreaming, autoScroll, scrollToEnd]);
+
+  // Track user scroll to pause/resume auto-scroll
+  useEffect(() => {
+    const el = scrollWrapRef.current;
+    if (!el) return;
+
+    const onScroll = () => {
+      const atBottom = isNearBottomCustom();
+      setAutoScroll(atBottom);
+      setShowJumpToLatest(!atBottom);
+    };
+
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [isNearBottomCustom]);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [knowledgeSources, setKnowledgeSources] = useState<Array<{ title: string; date: string; content: string }>>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -82,6 +117,7 @@ export default function Chat() {
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   // Voice modal state
   const [showVoiceModal, setShowVoiceModal] = useState(false);
+  // (old scrollContainerRef logic removed in favor of scrollWrapRef/endRef)
 
   // Helper function to update pre-generated audio with localStorage persistence
   const updatePreGeneratedAudio = useCallback((updater: (prev: Record<string, { audioData: string; contentType: string; audioUrl?: string }>) => Record<string, { audioData: string; contentType: string; audioUrl?: string }>) => {
@@ -318,6 +354,17 @@ export default function Chat() {
       }
       return newState;
     });
+  }, []);
+
+  // Auto-scroll helper functions
+  // legacy scroll helpers removed
+
+  // Helper function to check if content has enough paragraphs for auto-scroll
+  const shouldAutoScroll = useCallback((content: string) => {
+    if (!content) return false;
+    // Count paragraphs by splitting on double newlines or single newlines followed by non-whitespace
+    const paragraphs = content.split(/\n\s*\n|\n(?=\S)/).filter(p => p.trim().length > 0);
+    return paragraphs.length >= 3; // Enable auto-scroll after 3+ paragraphs
   }, []);
 
   const getKnowledgeState = useCallback((messageId: string) => knowledgeStates[messageId] ?? false, [knowledgeStates]);
@@ -1271,6 +1318,9 @@ export default function Chat() {
 
         setIsStreaming(true);
         setIsLoading(true);
+  // Reset auto-scroll state for new streaming session
+  setAutoScroll(true);
+  setShowJumpToLatest(false);
         let finalAssistantContent = "";
 
         // Convert File to base64
@@ -1289,7 +1339,9 @@ export default function Chat() {
 
         setIsStreaming(false);
         setIsLoading(false);
-        setStreamingContent("");
+  setStreamingContent("");
+  // Hide jump-to-latest button when streaming ends
+  setShowJumpToLatest(false);
 
         // Finalize assistant message
         setMessages((prev) => {
@@ -1358,6 +1410,9 @@ export default function Chat() {
 
       setIsStreaming(true);
       setIsLoading(true);
+  // Reset auto-scroll state for new streaming session
+  setAutoScroll(true);
+  setShowJumpToLatest(false);
       let finalAssistantContent = "";
 
       streamingContentRef.current = "";
@@ -1415,13 +1470,32 @@ export default function Chat() {
     }
   };
 
+  // Auto-scroll logic for streaming content
   useEffect(() => {
-    // Small delay to ensure DOM updates are complete before scrolling
-    const timeoutId = setTimeout(() => {
-      messageEndRef.current?.scrollIntoView({ behavior: "auto" });
-    }, 50);
-    return () => clearTimeout(timeoutId);
-  }, [messages.length]);
+    if (isStreaming && streamingContent && autoScroll) {
+      const hasEnoughContent = shouldAutoScroll(streamingContent);
+      if (hasEnoughContent) {
+        const timeoutId = setTimeout(() => {
+          if (isNearBottomCustom()) {
+            scrollToEnd(false); // Smooth scroll during streaming
+          }
+        }, 100); // Slightly longer delay for streaming
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [streamingContent, isStreaming, autoScroll, shouldAutoScroll, isNearBottomCustom, scrollToEnd]);
+
+  // Traditional scroll for message completion
+  useEffect(() => {
+    if (!isStreaming && messages.length > 0) {
+      const timeoutId = setTimeout(() => {
+        scrollToEnd(false);
+      }, 50);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [messages.length, isStreaming, scrollToEnd]);
+
+  // scroll event listener is attached to scrollWrapRef in the auto-scroll effect above
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1543,12 +1617,21 @@ export default function Chat() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto pb-4 backdrop-blur-sm bg-background/80">
+      {/* Messages scroll area */}
+      <div
+        ref={scrollWrapRef}
+        className="relative flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 pb-4 backdrop-blur-sm bg-background/80"
+      >
         {messages.map((m, i) => {
           const messageId = `${i}-${m.content?.toString().length || 0}`;
           const message = m as ExtendedMessage;
-          const { think, response } = parseAssistantContent(m.content as string, false);
-          const responseMessageId = `${i}-${response.length}`;
+          // ✅ show streaming text only in the LAST assistant bubble being streamed
+          const isCurrentlyStreaming = isStreaming && i === messages.length - 1 && m.role === "assistant";
+
+          const displayContent = isCurrentlyStreaming ? (streamingContent as string) : (m.content as string);
+
+          const { think, response } = parseAssistantContent(displayContent, false);
+          const responseMessageId = `${i}-${String(response || displayContent).length}`;
           return (
             <div key={messageId} className={cn("mb-4 p-2", m.role === "user" ? "flex justify-end" : "flex justify-start")}>
               <div className={cn("flex items-start", m.role === "user" ? "flex-row-reverse" : "flex-row")}>
@@ -1758,8 +1841,25 @@ export default function Chat() {
             </div>
           );
         })}
-        <div ref={messageEndRef} />
+
+        {/* sentinel for scroll-to-bottom */}
+        <div ref={endRef} />
       </div>
+
+      {/* Jump to latest FAB */}
+      {showJumpToLatest && (
+        <button
+          type="button"
+          onClick={() => {
+            setAutoScroll(true);
+            scrollToEnd(true);
+          }}
+          className="fixed bottom-24 right-4 z-20 rounded-full border bg-background/90 px-3 py-2 shadow-md hover:bg-background transition"
+          title="Jump to latest"
+        >
+          ↓
+        </button>
+      )}
 
       <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t flex items-start gap-2">
         <div className="flex-1">

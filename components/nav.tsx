@@ -6,7 +6,6 @@ import { useUser } from "./user-context";
 import { ModelSelector } from "./model-selector";
 import { useModel } from "./app-content";
 import { useState, useEffect } from "react";
-import { useDeepSecure } from "./app-content";
 import { DatabaseService } from "@/lib/database";
 import {
   DropdownMenu,

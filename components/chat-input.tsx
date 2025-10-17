@@ -42,6 +42,7 @@ export default function ChatInput({
     createdAt: string;
   }>>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size?: number }>>([]);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -109,6 +110,58 @@ export default function ChatInput({
       }
     };
     inputEl.click();
+  };
+
+  // drag-and-drop handlers
+  const onDropFiles = async (filesList: FileList | null) => {
+    if (!filesList || filesList.length === 0) return;
+
+    // If transcription model, prefer audio file drop
+    if (isTranscriptionModel) {
+      const audio = Array.from(filesList).find(f => f.type.startsWith('audio/'));
+      if (audio) {
+        setAudioFile(audio);
+        return;
+      }
+    }
+
+    // Otherwise upload files to /api/files same as handleFileUpload
+    const form = new FormData();
+    for (const f of Array.from(filesList)) form.append('files', f);
+
+    // Get current user ID from localStorage
+    const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('lora_current_user') : null;
+    if (!currentUserId) {
+      console.error('No current user found');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/files?userId=${currentUserId}`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (res.ok && data?.files) {
+        setAttachments(prev => [...prev, ...data.files]);
+      }
+    } catch (error) {
+      console.error('Failed to upload dropped files', error);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    onDropFiles(e.dataTransfer.files);
   };
 
   const handleAudioUpload = () => {
@@ -265,7 +318,13 @@ export default function ChatInput({
             </div>
           )}
 
-          <div className="relative flex w-full items-center">
+          <div
+            className={"relative flex w-full items-center" + (isDragging ? " ring-2 ring-primary/40 rounded-lg" : "")}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             {/* Mode selector button */}
             <Button
               type="button"
@@ -292,6 +351,11 @@ export default function ChatInput({
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
             />
+            {isDragging && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 px-4 py-2 text-sm text-primary">Drop files to upload</div>
+              </div>
+            )}
 
             {/* attachments moved below textarea to avoid overlapping the send button */}
 
