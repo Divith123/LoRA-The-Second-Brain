@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useUser } from "./user-context";
+import { DatabaseService } from "@/lib/database";
 
 type Props = {
   fileId: string | null;
@@ -14,6 +16,7 @@ export default function FilePreviewModal({ fileId, onClose }: Props) {
   const [contentType, setContentType] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const { currentUser } = useUser();
 
   useEffect(() => {
     if (!fileId) return;
@@ -24,21 +27,60 @@ export default function FilePreviewModal({ fileId, onClose }: Props) {
       setText(null);
       setObjectUrl(null);
       try {
+        // First try server-side preview (for files uploaded to server)
         const res = await fetch(`/api/files/${fileId}`);
-        if (!res.ok) throw new Error(`Preview failed: ${res.status}`);
-        const ct = res.headers.get("content-type") || "";
-        if (!mounted) return;
-        setContentType(ct);
-
-        if (ct.startsWith("text/") || ct.includes("json") || ct.includes("csv")) {
-          const t = await res.text();
+        if (res.ok) {
+          const ct = res.headers.get("content-type") || "";
           if (!mounted) return;
-          setText(t);
-        } else {
-          const blob = await res.blob();
+          setContentType(ct);
+
+          if (ct.startsWith("text/") || ct.includes("json") || ct.includes("csv")) {
+            const t = await res.text();
+            if (!mounted) return;
+            setText(t);
+          } else {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            if (!mounted) return;
+            setObjectUrl(url);
+          }
+        } else if (res.status === 404) {
+          // Fall back to client-side encrypted storage (IndexedDB/localStorage)
+          if (!currentUser || !currentUser.password) {
+            throw new Error('File not found on server and no user password available to decrypt local file');
+          }
+
+          // Attempt to load the file content from DatabaseService (returns ArrayBuffer)
+          const arr = await DatabaseService.loadFileContent(fileId!, currentUser.password);
+          if (!arr) throw new Error('Local file not found or decryption failed');
+
+          // Try to determine content type by filename metadata in the client DB
+          const fileMeta = await (async () => {
+            try {
+              // DatabaseService.getFilesByUserId returns list; find this file
+              const files = await DatabaseService.getFilesByUserId(currentUser.id);
+              return files.find(f => f.id === fileId) as any | undefined;
+            } catch (e) {
+              return undefined;
+            }
+          })();
+
+          const guessedType = fileMeta?.name?.toLowerCase?.().endsWith('.pdf') ? 'application/pdf' : (fileMeta?.name?.toLowerCase?.().match(/\.(png|jpe?g|gif|webp)$/) ? `image/${fileMeta.name.split('.').pop()}` : 'application/octet-stream');
+          if (!mounted) return;
+          setContentType(guessedType);
+
+          const blob = new Blob([arr], { type: guessedType });
           const url = URL.createObjectURL(blob);
           if (!mounted) return;
+          // If text-like, also try to read as text
+          if (guessedType.startsWith('text/') || guessedType.includes('json') || guessedType.includes('csv')) {
+            const txt = await (new Response(blob).text());
+            if (!mounted) return;
+            setText(txt);
+          }
           setObjectUrl(url);
+        } else {
+          throw new Error(`Preview failed: ${res.status}`);
         }
       } catch (e: any) {
         console.error(e);
