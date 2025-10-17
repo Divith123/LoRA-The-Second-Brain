@@ -4,7 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { SidebarTrigger } from "./ui/sidebar";
 import { useUser } from "./user-context";
 import { ModelSelector } from "./model-selector";
-import { useModel } from "./app-content";
+import { useModel, useDeepSecure } from "./app-content";
 import { useState, useEffect } from "react";
 import { DatabaseService } from "@/lib/database";
 import {
@@ -14,11 +14,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "./ui/button";
-import { ChevronDown } from "lucide-react";
-import { ExternalLink, User, Github, ArrowLeft, Image as ImageIcon, Video as VideoIcon, Music } from "lucide-react";
+import { ChevronDown, ExternalLink, User, Github, ArrowLeft, Image as ImageIcon, Video as VideoIcon, Music, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-export default function Nav({ showSidebar = true, showMediaSelector = false }: { showSidebar?: boolean; showMediaSelector?: boolean }) {
+export default function Nav({ showSidebar = true, showMediaSelector = false, hideLeftButtons = false }: { showSidebar?: boolean; showMediaSelector?: boolean; hideLeftButtons?: boolean }) {
   const { currentUser } = useUser();
   const { currentModel, onModelChange } = useModel();
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
@@ -46,55 +45,63 @@ export default function Nav({ showSidebar = true, showMediaSelector = false }: {
 
   return (
     <nav className="fixed flex w-full items-center bg-background p-6 md:bg-transparent z-40">
-      <div className="flex items-center gap-4">
-        {showSidebar ? (
-          <SidebarTrigger className="h-8 w-8" />
-        ) : (
-          <button
-            type="button"
-            aria-label="Back to chats"
-            onClick={() => router.push('/')}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-        )}
-        {showMediaSelector ? (
-          <div className="ml-2">
-            <label className="sr-only">Media type</label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2 h-8 px-3 text-sm font-medium hover:bg-muted/50 transition-colors">
-                  <span className="max-w-[140px] truncate font-semibold">{mediaType.charAt(0).toUpperCase() + mediaType.slice(1)}</span>
-                  <ChevronDown size={14} className="text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="min-w-[160px] bg-popover border-border rounded-2xl shadow-xl p-1">
-                <DropdownMenuItem asChild>
-                  <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('image')}>
-                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                    Image
-                  </button>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('video')}>
-                    <VideoIcon className="h-4 w-4 text-muted-foreground" />
-                    Video
-                  </button>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('audio')}>
-                    <Music className="h-4 w-4 text-muted-foreground" />
-                    Audio
-                  </button>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        ) : (
-          <ModelSelector currentModel={currentModel} onModelChange={onModelChange} />
-        )}
-      </div>
+      {!hideLeftButtons && (
+        <div className="flex items-center gap-4">
+          {showSidebar ? (
+            <SidebarTrigger className="h-8 w-8" />
+          ) : (
+            <button
+              type="button"
+              aria-label="Back to chats"
+              onClick={() => router.push('/')}
+              className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-muted"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          )}
+          {showMediaSelector ? (
+            <div className="ml-2">
+              <label className="sr-only">Media type</label>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="flex items-center gap-2 h-8 px-3 text-sm font-medium hover:bg-muted/50 transition-colors">
+                    <span className="max-w-[140px] truncate font-semibold">{mediaType.charAt(0).toUpperCase() + mediaType.slice(1)}</span>
+                    <ChevronDown size={14} className="text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="min-w-[160px] bg-popover border-border rounded-2xl shadow-xl p-1">
+                  <DropdownMenuItem asChild>
+                    <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('image')}>
+                      <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                      Image
+                    </button>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('video')}>
+                      <VideoIcon className="h-4 w-4 text-muted-foreground" />
+                      Video
+                    </button>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('audio')}>
+                      <Music className="h-4 w-4 text-muted-foreground" />
+                      Audio
+                    </button>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('ai-generated-image')}>
+                      <Sparkles className="h-4 w-4 text-muted-foreground" />
+                      AI Generated Image
+                    </button>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : (
+            <ModelSelector currentModel={currentModel} onModelChange={onModelChange} />
+          )}
+        </div>
+      )}
 
       {/* Fixed right side elements */}
       <div className="fixed right-6 top-6 flex items-center gap-4">
