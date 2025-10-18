@@ -52,16 +52,26 @@ async function generateLocalModelResponse(messages: CoreMessage[], model: string
       }
 
       // Normalize messages to plain strings
-      const formatted = messages.map(m => ({
+      // Add a local-mode brevity hint to the system prompt to encourage short replies
+      const brevityHint = 'LOCAL MODE: Keep responses very short and concise. Answer directly without unnecessary explanations. Maximum 1-2 sentences.';
+
+      const prepared = messages.map(m => ({
         role: m.role,
         content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
       }));
 
-      const generator = localInferenceService.generateResponse(model, formatted, {
-        temperature: 0.7,
-        topP: 0.9,
-        maxTokens: 512,
-        repetitionPenalty: 1.1,
+      // If there's a system message, append the brevity hint; otherwise insert one
+      const hasSystem = prepared.some(m => m.role === 'system');
+      const finalMessages = hasSystem
+        ? prepared.map(m => m.role === 'system' ? { ...m, content: m.content + '\n\n' + brevityHint } : m)
+        : [{ role: 'system', content: brevityHint }, ...prepared];
+
+      // Use tighter defaults for local GGUF generation: low temperature and short max tokens
+      const generator = localInferenceService.generateResponse(model, finalMessages, {
+        temperature: 0.15,
+        topP: 0.65,
+        maxTokens: 108,
+        repetitionPenalty: 1.05,
       });
 
       let acc = "";

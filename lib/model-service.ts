@@ -450,9 +450,10 @@ class ModelService {
         })),
         stream: true,
         options: {
-          temperature: options.temperature || 0.8,
-          top_p: options.topP || 0.7,
-          num_predict: options.maxTokens || 1024,
+          // Default to more concise responses for local Ollama models unless overridden
+          temperature: options.temperature ?? 0.15,
+          top_p: options.topP ?? 0.5,
+          num_predict: options.maxTokens ?? 206,
           // Memory optimization options
           num_ctx: 2048, // Limit context window to reduce memory
           num_thread: -1, // Use all available threads

@@ -20,6 +20,26 @@ const developers: Dev[] = [
     name: "Hariharan",
     github: "https://github.com/Hariharanpugazh",
   },
+  {
+    name: "Krishneshwaran",
+    github: "https://github.com/Krishneshwaran",
+  },
+  {
+    name: "Kaviya Priya",
+    github: "https://github.com/Kaviyapriya6",
+  },
+  {
+    name: "Kavin Bakyaraj",
+    github: "https://github.com/Kavin-Bakyaraj",
+  },
+  {
+    name: "Dilan Melvin",
+    github: "https://github.com/dilanmelvin",
+  },
+  {
+    name: "Dharshaneshwaran",
+    github: "https://github.com/Dharshaneshwaran",
+  },
 ];
 
 function DeveloperCard({ dev }: { dev: Dev }) {
