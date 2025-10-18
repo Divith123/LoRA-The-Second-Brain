@@ -99,7 +99,7 @@ export default function AboutPage() {
               and others. With support for both GGUF and H2O-Danube model formats, you have access to cutting-edge AI capabilities without compromising your privacy.
             </p>
             <p>
-              Whether you're a developer, researcher, or privacy-conscious user, LoRA provides a beautiful interface to browse, download, and chat with 
+              Whether you&apos;re a developer, researcher, or privacy-conscious user, LoRA provides a beautiful interface to browse, download, and chat with 
               various state-of-the-art language models, all while maintaining complete control over your data and conversations.
             </p>
           </div>
@@ -217,7 +217,7 @@ export default function AboutPage() {
                 <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center font-bold mt-0.5">1</div>
                 <div>
                   <h3 className="font-medium text-sm mb-1">Install Prerequisites</h3>
-                  <p className="text-xs text-muted-foreground">Download and install Ollama from ollama.ai, then run 'ollama serve' in your terminal.</p>
+                  <p className="text-xs text-muted-foreground">Download and install Ollama from ollama.ai, then run &apos;ollama serve&apos; in your terminal.</p>
                 </div>
               </div>
             </div>
@@ -226,7 +226,7 @@ export default function AboutPage() {
                 <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center font-bold mt-0.5">2</div>
                 <div>
                   <h3 className="font-medium text-sm mb-1">Setup Application</h3>
-                  <p className="text-xs text-muted-foreground">Clone the repository, install dependencies with 'npm install', and run 'npm run dev' to start the development server.</p>
+                  <p className="text-xs text-muted-foreground">Clone the repository, install dependencies with &apos;npm install&apos;, and run &apos;npm run dev&apos; to start the development server.</p>
                 </div>
               </div>
             </div>
@@ -274,7 +274,7 @@ export default function AboutPage() {
               designers, and AI enthusiasts who want to help improve the application.
             </p>
             <p>
-              Whether you're interested in adding new features, fixing bugs, improving documentation, or suggesting enhancements, 
+              Whether you&apos;re interested in adding new features, fixing bugs, improving documentation, or suggesting enhancements, 
               your contributions are valuable to the community. Feel free to submit issues and pull requests on our GitHub repository.
             </p>
           </div>

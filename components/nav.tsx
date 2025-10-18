@@ -89,7 +89,7 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
                     </button>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('ai-generated-image')}>
+                    <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('image')}>
                       <Sparkles className="h-4 w-4 text-muted-foreground" />
                       AI Generated Image
                     </button>
