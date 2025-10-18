@@ -14,14 +14,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "./ui/button";
-import { ChevronDown, ExternalLink, User, Github, ArrowLeft, Image as ImageIcon, Video as VideoIcon, Music, Sparkles } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ChevronDown, ExternalLink, User, Github, ArrowLeft, Image as ImageIcon, Video as VideoIcon, Music, Sparkles, Info } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
 
-export default function Nav({ showSidebar = true, showMediaSelector = false, hideLeftButtons = false }: { showSidebar?: boolean; showMediaSelector?: boolean; hideLeftButtons?: boolean }) {
+export default function Nav({ showSidebar = true, showMediaSelector = false, hideLeftButtons = false, hideModelSelector = false }: { showSidebar?: boolean; showMediaSelector?: boolean; hideLeftButtons?: boolean; hideModelSelector?: boolean }) {
   const { currentUser } = useUser();
   const { currentModel, onModelChange } = useModel();
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
   // Use shared deep secure media type state so the page and navbar stay in sync
   const { mediaType, setMediaType } = useDeepSecure();
   // Load current user's avatar
@@ -98,7 +99,9 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
               </DropdownMenu>
             </div>
           ) : (
-            <ModelSelector currentModel={currentModel} onModelChange={onModelChange} />
+            // When showMediaSelector is false we normally render the global ModelSelector.
+            // Allow pages to hide the selector (e.g., About page) by passing hideModelSelector.
+            !hideModelSelector ? <ModelSelector currentModel={currentModel} onModelChange={onModelChange} /> : null
           )}
         </div>
       )}
@@ -136,6 +139,14 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
                 <Github className="h-4 w-4" />
                 GitHub
               </a>
+            </DropdownMenuItem>
+
+            {/* About quick-link visible on all pages */}
+            <DropdownMenuItem asChild>
+              <Link href="/about" className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl hover:bg-muted/80">
+                <Info className="h-4 w-4" />
+                About
+              </Link>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

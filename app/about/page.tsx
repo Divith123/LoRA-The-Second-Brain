@@ -4,6 +4,7 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowLeft, Github } from "lucide-react";
+import Nav from "@/components/nav";
 
 interface Dev {
   name: string;
@@ -47,27 +48,32 @@ function DeveloperCard({ dev }: { dev: Dev }) {
   const avatar = `https://avatars.githubusercontent.com/${username}`;
 
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-6 transition-all hover:shadow-lg hover:border-primary/50">
-      <div className="flex items-start gap-4">
-        <Avatar className="h-20 w-20 ring-2 ring-primary/20 transition-all group-hover:ring-primary/50">
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center gap-4">
+        <Avatar className="h-16 w-16">
           <AvatarImage src={avatar} alt={dev.name} />
-          <AvatarFallback className="text-xl">
-            {dev.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
-          </AvatarFallback>
+          <AvatarFallback className="text-lg">{dev.name.split(" ").map((n) => n[0]).join("").toUpperCase()}</AvatarFallback>
         </Avatar>
 
-        <div className="flex-1">
-          <h3 className="text-xl font-bold mb-2">{dev.name}</h3>
-          <a
-            href={dev.github}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
-          >
-            <Github className="h-4 w-4" />
-            <span className="underline">{username}</span>
-          </a>
-          {dev.bio && <p className="text-sm text-muted-foreground mt-2">{dev.bio}</p>}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-4">
+            <h3 className="text-sm font-semibold truncate">{dev.name}</h3>
+            <a
+              href={dev.github}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+            >
+              <Github className="h-4 w-4" />
+              <span className="sr-only">GitHub</span>
+            </a>
+          </div>
+
+          {dev.bio ? (
+            <p className="mt-1 text-xs text-muted-foreground">{dev.bio}</p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">Contributor</p>
+          )}
         </div>
       </div>
     </div>
@@ -79,18 +85,10 @@ export default function AboutPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="fixed top-5 left-5 z-40">
-        <button
-          type="button"
-          aria-label="Back"
-          onClick={() => router.push("/")}
-          className="h-8 w-8 inline-flex items-center justify-center rounded-md bg-card border border-border hover:bg-muted transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-      </div>
+  {/* Site nav: show back button on left, no model selector and no sidebar */}
+  <Nav showMediaSelector={false} showSidebar={false} hideModelSelector={true} />
 
-      <main className="pt-16 px-6 pb-12 max-w-4xl mx-auto">
+      <main className="pt-24 px-6 pb-12 max-w-4xl mx-auto">
         <header className="mb-6">
           <h1 className="text-2xl font-semibold">About LoRA</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -101,9 +99,19 @@ export default function AboutPage() {
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-3">Developers</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {developers.map((d) => (
-                        <DeveloperCard key={d.github} dev={d} />
-                      ))}
+                      {developers.map((d, idx) => {
+                        const isLastOdd = developers.length % 2 === 1 && idx === developers.length - 1;
+                        return (
+                          <div
+                            key={d.github}
+                            className={isLastOdd ? 'md:col-span-2 flex justify-center' : ''}
+                          >
+                            <div className={isLastOdd ? 'w-full md:max-w-2xl' : 'w-full'}>
+                              <DeveloperCard dev={d} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </section>
           
@@ -299,7 +307,7 @@ export default function AboutPage() {
             </p>
           </div>
         </section>                  <footer className="mt-8 pt-6 border-t border-border text-center">
-                    <p className="text-xs text-muted-foreground">Built by Harlee &amp; Divith · <a className="text-primary hover:underline" href="https://github.com/Divith123/LoRA-The-Second-Brain" target="_blank" rel="noreferrer">GitHub</a></p>
+                    <p className="text-xs text-muted-foreground">Built by  Divith  &amp; Harlee  · <a className="text-primary hover:underline" href="https://github.com/Divith123/LoRA-The-Second-Brain" target="_blank" rel="noreferrer">GitHub</a></p>
                   </footer>
                 </main>
               </div>
