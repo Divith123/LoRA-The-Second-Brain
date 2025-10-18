@@ -72,6 +72,62 @@ export default function ChatInput({
     detectSlashCommands();
   }, [detectSlashCommands]);
 
+  // Auto-focus the textarea when the component mounts so the user sees the text cursor
+  useEffect(() => {
+    // Focus without scrolling the page
+    try {
+      textareaRef.current?.focus({ preventScroll: true });
+    } catch {
+      // older browsers may not support options
+      textareaRef.current?.focus();
+    }
+
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      // Ignore when modifier keys are held (user likely using shortcuts)
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const active = document.activeElement as HTMLElement | null;
+      // If user is already typing in an input/textarea/contenteditable, don't intercept
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+
+      // Only handle printable characters and Backspace/Space
+      const key = e.key;
+      const isPrintable = key.length === 1; // single-character keys
+      const handledSpecial = key === 'Backspace' || key === ' ';
+      if (!isPrintable && !handledSpecial) return;
+
+      // Prevent the default so the key doesn't trigger other handlers
+      e.preventDefault();
+
+      // Focus the textarea and inject the character
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+
+      // For backspace, remove last character
+      if (key === 'Backspace') {
+        const current = textareaRef.current?.value ?? input;
+        setInput(current.slice(0, -1));
+        return;
+      }
+
+      // Append printable char or space
+      const currentVal = textareaRef.current?.value ?? input;
+      setInput(currentVal + key);
+
+      // Move caret to end (allow React to update first)
+      setTimeout(() => {
+        try {
+          const len = ta.value.length;
+          ta.setSelectionRange(len, len);
+        } catch {}
+      }, 0);
+    };
+
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, [setInput]);
+
   const handleModeSelect = (mode: AIMode) => {
     setSelectedMode(mode);
     setShowModeSelector(false);
