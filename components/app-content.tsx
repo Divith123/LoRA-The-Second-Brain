@@ -39,8 +39,8 @@ export const useModel = () => useContext(ModelContext);
 
 // DeepSecure context to share selected media type with Nav and the DeepSecureAI page
 export const DeepSecureContext = createContext<{
-  mediaType: 'image' | 'video' | 'audio';
-  setMediaType: (t: 'image' | 'video' | 'audio') => void;
+  mediaType: 'image' | 'video' | 'audio' | 'ai-generated-image';
+  setMediaType: (t: 'image' | 'video' | 'audio' | 'ai-generated-image') => void;
 } | null>(null);
 
 export const useDeepSecure = () => {
@@ -103,7 +103,7 @@ function AppContentInner({ children }: AppContentProps) {
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [deepMediaType, setDeepMediaType] = useState<'image' | 'video' | 'audio'>('image');
+  const [deepMediaType, setDeepMediaType] = useState<'image' | 'video' | 'audio' | 'ai-generated-image'>('image');
 
   // Settings modal state
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
@@ -225,7 +225,7 @@ function AppContentInner({ children }: AppContentProps) {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading LoRA...</p>
+          <p className="text-muted-foreground">Loading Venom...</p>
         </div>
       </div>
     );

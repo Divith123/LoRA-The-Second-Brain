@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "./ui/button";
-import { ChevronDown, ExternalLink, User, Github, ArrowLeft, Image as ImageIcon, Video as VideoIcon, Music } from "lucide-react";
+import { ChevronDown, ExternalLink, User, Github, ArrowLeft, Image as ImageIcon, Video as VideoIcon, Music, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function Nav({ showSidebar = true, showMediaSelector = false, hideLeftButtons = false }: { showSidebar?: boolean; showMediaSelector?: boolean; hideLeftButtons?: boolean }) {
@@ -88,6 +88,12 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
                       Audio
                     </button>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <button className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl px-3 hover:bg-muted/80" onClick={() => setMediaType('ai-generated-image')}>
+                      <Sparkles className="h-4 w-4 text-muted-foreground" />
+                      AI Generated Image
+                    </button>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -122,7 +128,7 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <a
-                href="https://github.com/Divith123/LoRA-The-Second-Brain"
+                href="https://github.com/Divith123/Venom-The-Second-Brain"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 w-full justify-start text-sm h-9 rounded-xl hover:bg-muted/80"

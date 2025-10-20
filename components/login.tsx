@@ -133,7 +133,7 @@ export function Login({ onLogin }: LoginProps) {
               <Users className="w-8 h-8 text-primary" />
             </div>
             <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-              {mode === "create" ? "Create Account" : users.length > 0 ? "Welcome Back" : "Welcome to LoRA"}
+              {mode === "create" ? "Create Account" : users.length > 0 ? "Welcome Back" : "Welcome to Venom"}
             </CardTitle>
             <CardDescription className="text-muted-foreground">
               {mode === "create"
@@ -294,7 +294,7 @@ export function Login({ onLogin }: LoginProps) {
                     {mode === "create" ? "Creating account..." : "Signing in..."}
                   </div>
                 ) : (
-                  mode === "create" ? "Create Account" : "Continue to LoRA"
+                  mode === "create" ? "Create Account" : "Continue to Venom"
                 )}
               </Button>
             </form>

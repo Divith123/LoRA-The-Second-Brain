@@ -76,11 +76,11 @@ export class LoRADatabase extends Dexie {
 
     // Add debugging
     this.open().then(async () => {
-      console.log('LoRA Database opened successfully, version:', this.verno);
+      console.log('Venom Database opened successfully, version:', this.verno);
       // Run migration to fix user data
       await DatabaseService.migrateUserData();
     }).catch(error => {
-      console.error('Failed to open LoRA Database:', error);
+      console.error('Failed to open Venom Database:', error);
     });
   }
 }

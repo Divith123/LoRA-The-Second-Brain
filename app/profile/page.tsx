@@ -211,7 +211,7 @@ export default function ProfilePage() {
                 />
               </div>
               <CardTitle className="text-xl">{currentUser.name}</CardTitle>
-              <CardDescription>LoRA User</CardDescription>
+              <CardDescription>Venom User</CardDescription>
               <div className="flex justify-center gap-2 mt-2">
                 <Badge variant="secondary">Free Plan</Badge>
               </div>
@@ -365,7 +365,7 @@ export default function ProfilePage() {
               <CardHeader>
                 <CardTitle>Usage Statistics</CardTitle>
                 <CardDescription>
-                  Your LoRA usage overview
+                  Your Venom usage overview
                 </CardDescription>
               </CardHeader>
               <CardContent>

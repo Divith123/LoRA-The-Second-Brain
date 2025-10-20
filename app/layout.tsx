@@ -9,7 +9,7 @@ import { QueryProvider } from "@/components/query-provider";
 const FigtreeFont = Figtree({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "LoRA — The Second Brain",
+  title: "Venom — The Second Brain",
   description:
     "An open-source AI chatbot app template built with Next.js, the Vercel AI SDK and local AI models.",
 };
@@ -27,7 +27,7 @@ export default function RootLayout({
       <meta property="og:image:height" content="832" />
       <meta
         property="og:site_name"
-        content="LoRA — The Second Brain"
+        content="Venom — The Second Brain"
       />
       <meta property="og:url" content="https://lora-ai.vercel.app/" />
       <meta name="twitter:image" content="/twitter-image.png" />

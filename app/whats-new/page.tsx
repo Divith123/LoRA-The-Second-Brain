@@ -113,7 +113,7 @@ const changelog: ChangelogEntry[] = [
       {
         category: "feature",
         items: [
-          "Initial release of LoRA - The Second Brain",
+          "Initial release of Venom - The Second Brain",
           "AI-powered conversation system",
           "Multiple model support (Ollama, OpenAI, Gemini, Groq)",
           "File upload and processing capabilities",
@@ -200,7 +200,7 @@ export default function WhatsNewPage() {
             <h2 className="text-xl font-semibold">Latest Updates & Features</h2>
           </div>
           <p className="text-sm text-muted-foreground">
-            Stay up to date with the latest improvements, features, and bug fixes in LoRA
+            Stay up to date with the latest improvements, features, and bug fixes in Venom
           </p>
         </div>
 
@@ -266,14 +266,14 @@ export default function WhatsNewPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open('https://github.com/Divith123/LoRA-The-Second-Brain/issues', '_blank')}
+                onClick={() => window.open('https://github.com/Divith123/Venom-The-Second-Brain/issues', '_blank')}
               >
                 Report an Issue
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open('https://github.com/Divith123/LoRA-The-Second-Brain', '_blank')}
+                onClick={() => window.open('https://github.com/Divith123/Venom-The-Second-Brain', '_blank')}
               >
                 View on GitHub
               </Button>

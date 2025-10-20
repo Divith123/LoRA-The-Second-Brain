@@ -24,13 +24,13 @@ import {
 // This is sample data.
 const data = {
   user: {
-    name: "LoRA User",
+    name: "Venom User",
     email: "user@lora.ai",
     avatar: "/avatars/shadcn.jpg",
   },
   teams: [
     {
-      name: "LoRA - The Second Brain",
+      name: "Venom - The Second Brain",
       plan: "",
     },
     {

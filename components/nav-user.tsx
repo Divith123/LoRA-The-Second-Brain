@@ -198,7 +198,7 @@ export function NavUser({ onOpenSettings }: { onOpenSettings?: () => void }) {
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem onClick={() => window.open('https://github.com/Divith123/LoRA-The-Second-Brain/wiki', '_blank')}>
+                <DropdownMenuItem onClick={() => window.open('https://github.com/Divith123/Venom-The-Second-Brain/wiki', '_blank')}>
                   <HelpCircle className="h-4 w-4 mr-2" />
                   Help & Support
                 </DropdownMenuItem>

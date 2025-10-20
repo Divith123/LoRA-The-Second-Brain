@@ -583,8 +583,8 @@ export default function ChatInput({
             target="_blank"
             rel="noopener noreferrer"
             className="md:hover:text-nvidia underline underline-offset-2 transition-all duration-150 ease-linear"
-            href="https://github.com/Divith123/LoRA-The-Second-Brain">
-            LoRA Team
+            href="https://github.com/Divith123/Venom-The-Second-Brain">
+            Venom Team
           </a>
         </p>
       </div>

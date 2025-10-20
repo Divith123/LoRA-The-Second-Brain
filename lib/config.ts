@@ -1,4 +1,4 @@
-// Configuration for LoRA model inference
+// Configuration for Venom model inference
 export interface LoRAConfig {
   inferenceBackend: 'ollama-cpu' | 'ollama-gpu' | 'webgpu' | 'wasm';
   memoryLimit: number; // in MB

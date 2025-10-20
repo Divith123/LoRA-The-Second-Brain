@@ -1,4 +1,4 @@
-<h1 align="center">LoRA: The Second Brain</h1>
+<h1 align="center">Venom: The Second Brain</h1>
 
 <p align="center">
 
@@ -52,8 +52,8 @@ This app uses Ollama to run AI models locally on your machine. Models are downlo
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/Divith123/LoRA---The-Second-Brain.git
-cd LoRA---The-Second-Brain
+git clone https://github.com/Divith123/Venom---The-Second-Brain.git
+cd Venom---The-Second-Brain
 npm install
 ```
 

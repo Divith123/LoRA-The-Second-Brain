@@ -90,22 +90,60 @@ export default function DeepSecureAIPage() {
     setResult(null);
   };
 
-  // Mock detection algorithm: deterministic but varied based on filename length and type
+  // Real detection using Hugging Face API
   const runDetection = async () => {
     if (!file) return;
     setIsDetecting(true);
     setResult(null);
-    await new Promise((r) => setTimeout(r, 900)); // simulate processing
 
-    const base = file.name.length % 100;
-    let confidence = 40 + (base % 60); // 40-99
-    if (mediaType === 'audio') confidence = Math.max(30, confidence - 10);
-    if (mediaType === 'video') confidence = Math.max(35, confidence - 5);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('mediaType', mediaType);
 
-    const label = confidence % 2 === 0 ? 'Fake' : 'Real';
-    const lbl = label as 'Real' | 'Fake';
-    setResult({ label: lbl, confidence });
-    setIsDetecting(false);
+      console.log('Sending request to backend with mediaType:', mediaType, 'file:', file.name);
+
+      const response = await fetch('/api/DeepSecureAI', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Backend error response:', errorData);
+        throw new Error(errorData.error || errorData.details || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('Backend response:', data);
+
+      // Validate response format
+      if (!data.label || !['Real', 'Fake'].includes(data.label)) {
+        throw new Error('Invalid response format from backend');
+      }
+
+      setResult({
+        label: data.label,
+        confidence: data.confidence || 0
+      });
+
+      // Add to logs
+      setLogs(prev => [...prev, {
+        time: new Date().toLocaleTimeString(),
+        label: data.label,
+        confidence: data.confidence || 0,
+        name: file.name
+      }]);
+
+      toast.success(`Detection complete: ${data.label} (${data.confidence || 0}% confidence)`);
+
+    } catch (error) {
+      console.error('Detection error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to run detection';
+      toast.error(`Detection failed: ${errorMessage}`);
+    } finally {
+      setIsDetecting(false);
+    }
   };
 
   const quickSamples = {
@@ -120,6 +158,10 @@ export default function DeepSecureAIPage() {
     audio: [
       { name: 'voice_real.flac', url: '/samples/voice_real.flac' },
       { name: 'voice_fake.flac', url: '/samples/voice_fake.flac' }
+    ],
+    'ai-generated-image': [
+      { name: 'ai_generated.jpg', url: '/samples/ai_generated.jpg' },
+      { name: 'human_created.jpg', url: '/samples/human_created.jpg' }
     ]
   } as const;
 
@@ -156,7 +198,7 @@ export default function DeepSecureAIPage() {
                     <div className="w-full flex items-center justify-center">
                       {/* Fixed-size preview box to avoid layout shifts from large/small media; use flex-1 to match right panel */}
                       <div className="w-full max-w-full h-80 md:h-72 flex items-center justify-center bg-muted/5 rounded overflow-hidden">
-                        {mediaType === 'image' && previewUrl && (
+                        { (mediaType === 'image' || mediaType === 'ai-generated-image') && previewUrl && (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={previewUrl} alt="preview" className="max-w-full max-h-full object-contain" />
                         )}
@@ -180,7 +222,7 @@ export default function DeepSecureAIPage() {
                     <label className="flex-1">
                       <input
                         type="file"
-                        accept={mediaType === 'image' ? 'image/*' : mediaType === 'video' ? 'video/*' : 'audio/*'}
+                        accept={(mediaType === 'image' || mediaType === 'ai-generated-image') ? 'image/*' : mediaType === 'video' ? 'video/*' : 'audio/*'}
                         onChange={(e) => handleFileChange(e.target.files ? e.target.files[0] : undefined)}
                         className="sr-only"
                       />
@@ -238,7 +280,7 @@ export default function DeepSecureAIPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-2 text-xs text-muted-foreground">This is a demo result — replace with an ML-backed detector for production.</div>
+                    <div className="mt-2 text-xs text-muted-foreground">Powered by Hugging Face deepfake detection models for accurate analysis.</div>
                   </div>
 
                   {/* File metadata and actions */}
@@ -269,7 +311,7 @@ export default function DeepSecureAIPage() {
                   {/* Explainability + next steps panel (no persistent history) */}
                   <div className="flex-1 overflow-auto rounded-md border p-3 bg-card/50">
                     <div className="text-sm font-medium">Explainability</div>
-                    <div className="mt-2 text-xs text-muted-foreground">This demo provides a single confidence score and label. For better explainability, integrate a model that returns feature attributions, frame-level scores (for video), or timestamps (for audio).</div>
+                    <div className="mt-2 text-xs text-muted-foreground">This analysis uses advanced deepfake detection models trained on large datasets to identify manipulated media. Results include confidence scores based on multiple detection techniques.</div>
 
                     <div className="mt-4">
                       <div className="text-sm font-medium">Next steps</div>

@@ -402,9 +402,12 @@ export default function Chat() {
 
       console.log('🎵 Pre-generating TTS for cleaned text:', cleanText.substring(0, 50) + '...');
 
+      // Get user API keys for TTS
+      const apiKeys = currentUser?.id ? await DatabaseService.getUserApiKeys(currentUser.id) : null;
+
       // Try ElevenLabs TTS first (primary)
       try {
-        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(cleanText, 'JkpEM0J2p7DL32VXnieS', currentUser?.id);
+        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(cleanText, undefined, apiKeys?.elevenlabsApiKey);
 
         // Convert base64 to blob and create URL for instant playback
         const audioData = Uint8Array.from(atob(elevenLabsResult.audioData), c => c.charCodeAt(0));
@@ -434,7 +437,7 @@ export default function Chat() {
             .replace(/^Let me think[\s\S]*?(?=\n\n|\n[A-Z]|$)/im, '') // Remove "Let me think" sections
             .trim();
 
-          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', currentUser?.id);
+          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', apiKeys?.groqApiKey);
 
           // Convert base64 to blob and create URL for instant playback
           const audioData = Uint8Array.from(atob(result.audioData), c => c.charCodeAt(0));
@@ -637,9 +640,12 @@ export default function Chat() {
 
       console.log('Generating TTS for text:', filteredText.substring(0, 100) + '...');
 
+      // Get user API keys for TTS
+      const apiKeys = currentUser?.id ? await DatabaseService.getUserApiKeys(currentUser.id) : null;
+
       try {
         // Try ElevenLabs TTS API first (primary)
-        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(filteredText, 'JkpEM0J2p7DL32VXnieS', currentUser?.id);
+        const elevenLabsResult = await handleElevenLabsTextToSpeechAction(filteredText, undefined, apiKeys?.elevenlabsApiKey);
 
         // Convert base64 to blob and play
         try {
@@ -743,7 +749,7 @@ export default function Chat() {
 
         try {
           // Try Groq TTS API
-          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', currentUser?.id);
+          const result = await handleTextToSpeechAction(filteredText, 'af_bella', 'wav', apiKeys?.groqApiKey);
 
           // Convert base64 to blob and play
           const audioData = Uint8Array.from(atob(result.audioData), c => c.charCodeAt(0));
@@ -943,7 +949,7 @@ export default function Chat() {
       // Header
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(18);
-      doc.text('LoRA - Deep Research Chat Export', margin, 60);
+      doc.text('Venom - Deep Research Chat Export', margin, 60);
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
@@ -982,7 +988,7 @@ export default function Chat() {
       // Assistant section
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
-      doc.text('LoRA:', margin, cursorY);
+      doc.text('Venom:', margin, cursorY);
       cursorY += 18;
 
       doc.setFont('helvetica', 'normal');
@@ -1519,12 +1525,12 @@ export default function Chat() {
       <div className="stretch mx-auto flex min-h-screen w-full max-w-xl flex-col px-4 pt-[6rem] md:px-0 md:pt-[4rem] xl:pt-[2rem] relative">
         <div className="flex-1 flex flex-col justify-center">
           <h1 className="text-center text-5xl font-medium tracking-tighter">
-            LoRA: The Second Brain
+            Venom: The Second Brain
           </h1>
           <div className="mt-6 px-3 md:px-0">
-            <h2 className="text-lg font-medium">🔹 What is LoRA: The Second Brain?</h2>
+            <h2 className="text-lg font-medium">🔹 What is Venom: The Second Brain?</h2>
             <p className="mt-2 text-sm text-primary/80">
-              LoRA (your project) is an offline personal AI hub. Think of it as your own private assistant + second brain that lives entirely on your device. It&apos;s built on top of Open WebUI, but rebranded and extended with extra features so it&apos;s not &quot;just another AI chat.&quot;
+              Venom (your project) is an offline personal AI hub. Think of it as your own private assistant + second brain that lives entirely on your device. It&apos;s built on top of Open WebUI, but rebranded and extended with extra features so it&apos;s not &quot;just another AI chat.&quot;
             </p>
             <p className="mt-2 text-sm text-primary/80">
               The idea is:
@@ -1648,7 +1654,7 @@ export default function Chat() {
                       <AvatarFallback>U</AvatarFallback>
                     </Avatar>
                   ) : (
-                    <img src="/lora.svg" alt="LoRA AI" className="h-6 w-6" />
+                    <img src="/lora.svg" alt="Venom AI" className="h-6 w-6" />
                   )}
                 </div>
                 <div className="space-y-2 px-1">
