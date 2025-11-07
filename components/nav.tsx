@@ -21,6 +21,7 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
   const { currentUser } = useUser();
   const { currentModel, onModelChange } = useModel();
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const [isElectron, setIsElectron] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   // Use shared deep secure media type state so the page and navbar stay in sync
@@ -40,6 +41,14 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
     };
 
     loadUserAvatar();
+
+    // Detect Electron environment (preload exposes window.api.downloadApp)
+    try {
+      // @ts-ignore
+      setIsElectron(!!(typeof window !== 'undefined' && (window as any).api && typeof (window as any).api.downloadApp === 'function'));
+    } catch (e) {
+      setIsElectron(false);
+    }
   }, [currentUser]);
 
 
@@ -112,6 +121,34 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
         <div className="flex items-center justify-center">
           <AnimatedThemeToggler />
         </div>
+
+        {/* Download app button (copies bundled installer to user location) - only show in Electron */}
+        {isElectron && (
+          <div className="flex items-center">
+            <button
+              type="button"
+              aria-label="Download app"
+              onClick={async () => {
+                try {
+                  // @ts-ignore
+                  const res = await (window as any).api?.downloadApp();
+                  if (res?.ok) {
+                    alert('Installer saved to: ' + res.path);
+                  } else if (res?.canceled) {
+                    // user cancelled
+                  } else {
+                    alert('Failed to save installer: ' + (res?.error || 'unknown'));
+                  }
+                } catch (e) {
+                  alert('Download failed: ' + String(e));
+                }
+              }}
+              className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-muted"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v12m0 0l4-4m-4 4-4-4M21 21H3"/></svg>
+            </button>
+          </div>
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
