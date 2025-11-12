@@ -2,11 +2,18 @@
   "name": "lora-ai",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "electron:dev": "concurrently -k \"npx next dev -p 3000\" \"wait-on http://localhost:3000 && electron .\"",
+    "app:dev": "concurrently -k \"npx next dev -p 3000\" \"wait-on http://localhost:3000 && electron .\"",
+    "build:web": "next build",
+    "build:app": "npm run build:web && electron-builder --win && node scripts/post-build-copy-installer.js",
+    "start:app": "electron .",
+    "create-dev-installer": "node scripts/create-dev-installer.js"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.0.1",
@@ -75,13 +82,61 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/unist": "^3.0.3",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.4",
+    "get-port": "^6.1.2",
     "node-loader": "^2.1.0",
     "postcss": "^8",
     "prettier": "^3.3.2",
     "prettier-plugin-tailwindcss": "^0.6.5",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^7.0.0"
+  },
+  "eslint": {
+    "ignoreDuringBuilds": true
+  },
+  "build": {
+    "appId": "com.yourdomain.yourapp",
+    "productName": "LoRA The Second Brain",
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      ".next/standalone/**/*",
+      ".next/static/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/static",
+        "to": ".next/static"
+      },
+      {
+        "from": "public",
+        "to": "public"
+      },
+      {
+        "from": "dist",
+        "to": "dist"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false
+    }
   }
 }
