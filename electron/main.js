@@ -71,7 +71,8 @@ ipcMain.handle('app:download-installer', async () => {
         }
       }
     } catch (err) {
-      // ignore permission / missing folders
+      // Log the error for debugging, but continue
+      console.error('Error in findExeRecursive for directory:', dir, err);
     }
     return null;
   }
