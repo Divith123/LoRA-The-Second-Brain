@@ -89,7 +89,7 @@
     "electron-builder": "^24.0.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.4",
-    "get-port": "^7.1.0",
+    "get-port": "^6.1.2",
     "node-loader": "^2.1.0",
     "postcss": "^8",
     "prettier": "^3.3.2",
