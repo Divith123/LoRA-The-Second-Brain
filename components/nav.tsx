@@ -44,8 +44,13 @@ export default function Nav({ showSidebar = true, showMediaSelector = false, hid
 
     // Detect Electron environment (preload exposes window.api.downloadApp)
     try {
-      // @ts-ignore
-      setIsElectron(!!(typeof window !== 'undefined' && (window as any).api && typeof (window as any).api.downloadApp === 'function'));
+      setIsElectron(
+        !!(
+          typeof window !== 'undefined' &&
+          window.api &&
+          typeof window.api.downloadApp === 'function'
+        )
+      );
     } catch (e) {
       setIsElectron(false);
     }
