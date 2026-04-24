@@ -22,7 +22,7 @@ An open-source AI chatbot app that runs models locally using Ollama, supporting 
 - Custom rate limiter for server actions
 - [Sonner](https://sonner.emilkowal.ski/) for toast notifications
 - Local SQLite database for conversations and user data
-- Privacy-focused: Everything runs locally, no data sent to external servers
+- Privacy-focused: Everything runs locally, no data sent to external servers.
 
 ## How It Works?
 
