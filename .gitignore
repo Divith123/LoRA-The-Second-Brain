@@ -40,3 +40,9 @@ next-env.d.ts
 /uploads.env
 .env
 uploads/
+
+# Phase 1: server-side SQLite store (hybrid retrieval + structured memory)
+/data/
+# local embedding model cache downloaded by @xenova/transformers
+/.cache/
+/.models-cache/

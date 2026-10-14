@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MemoryManager } from "@/components/memory-manager";
 
 export default function ProfilePage() {
   const { currentUser, users, logout, refreshCurrentUser } = useUser();
@@ -275,6 +276,9 @@ export default function ProfilePage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Personal Memory management (Phase 1) */}
+            <MemoryManager />
 
             {/* API Key Configuration */}
             {/* <ApiKeyConfig /> */}

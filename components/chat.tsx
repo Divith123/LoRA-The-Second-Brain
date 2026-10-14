@@ -1403,9 +1403,12 @@ export default function Chat() {
       const messagesToSend = fileListText ? [{ role: 'system' as const, content: fileListText }, ...newMessages] : newMessages;
 
       // pass fileIds to RAG-enabled server action (server will run retrieval internally)
+      // Phase 1: pass userId so the server can use persistent hybrid retrieval
+      // and structured personal memory, scoped to this user.
       const result = await continueConversation(messagesToSend, model, currentProvider || 'ollama', {
         fileIds,
-        mode: undefined
+        mode: undefined,
+        userId: currentUser?.id,
       });
 
       setIsStreaming(true);

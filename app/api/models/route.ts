@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Ollama } from 'ollama';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { modelService } from '@/lib/model-service';
+import {
+  startDownload as startBgDownload,
+  cancelDownload as cancelBgDownload,
+  getActiveDownloads,
+  getDownload,
+  recoverOnStartup,
+} from '@/lib/server/download-manager';
 
 const MODELS_DIR = path.join(process.cwd(), 'models');
 
@@ -14,6 +22,9 @@ if (!fs.existsSync(MODELS_DIR)) {
 const ollama = new Ollama({
   host: process.env.OLLAMA_HOST || 'http://localhost:11434'
 });
+
+// On server start, mark any orphaned "downloading" records as failed.
+recoverOnStartup();
 
 // GET /api/models - Fetch models or check status
 export async function GET(request: NextRequest) {
@@ -35,6 +46,12 @@ export async function GET(request: NextRequest) {
         return await handleLocalFiles();
       case 'provider':
         return await handleProviderModels(provider);
+      case 'system':
+        return handleSystemSpecs();
+      case 'downloads':
+        return handleActiveDownloads();
+      case 'download-progress':
+        return handleDownloadProgressSSE(searchParams.get('id'));
       default:
         return NextResponse.json({ error: 'Invalid type parameter' }, { status: 400 });
     }
@@ -44,7 +61,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/models - Download model
+// POST /api/models - Start a background download (returns immediately)
 export async function POST(request: NextRequest) {
   try {
     const { modelId, downloadSource, host } = await request.json();
@@ -53,25 +70,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Model ID is required' }, { status: 400 });
     }
 
-    // Choose download method based on source
-    if (downloadSource === 'direct') {
-      return await downloadModelDirect(modelId);
-    } else {
-      // Default to Ollama download with progress
-      return await downloadModelWithOllama(modelId, host);
-    }
+    const record = startBgDownload(
+      modelId,
+      downloadSource === 'direct' ? 'direct' : 'ollama',
+      host
+    );
+
+    return NextResponse.json(record);
   } catch (error) {
     console.error('Download error:', error);
     return NextResponse.json({ error: 'Failed to start download' }, { status: 500 });
   }
 }
 
-// DELETE /api/models - Delete model
+// DELETE /api/models - Delete model or cancel download
 export async function DELETE(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const modelName = searchParams.get('name');
+  const downloadId = searchParams.get('downloadId');
   const host = searchParams.get('host');
 
+  // Cancel a download
+  if (downloadId) {
+    const ok = cancelBgDownload(downloadId);
+    return NextResponse.json({ success: ok });
+  }
+
+  // Delete an installed model
   if (!modelName) {
     return NextResponse.json({ error: 'Model name is required' }, { status: 400 });
   }
@@ -214,6 +239,102 @@ async function handleLocalFiles() {
   }
 }
 
+function handleSystemSpecs() {
+  try {
+    const cpus = os.cpus();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+
+    return NextResponse.json({
+      platform: os.platform(),        // 'win32' | 'darwin' | 'linux'
+      arch: os.arch(),                // 'x64' | 'arm64' ...
+      cpuModel: cpus?.[0]?.model?.trim() || 'Unknown CPU',
+      cpuCores: cpus?.length || 0,
+      totalMemoryBytes: totalMem,
+      freeMemoryBytes: freeMem,
+      totalMemoryGB: Math.round((totalMem / 1024 ** 3) * 10) / 10,
+      freeMemoryGB: Math.round((freeMem / 1024 ** 3) * 10) / 10,
+    });
+  } catch (error) {
+    console.error('System specs error:', error);
+    return NextResponse.json({ error: 'Failed to read system specs' }, { status: 500 });
+  }
+}
+
+function handleActiveDownloads() {
+  try {
+    const active = getActiveDownloads();
+    return NextResponse.json(active);
+  } catch (error) {
+    console.error('Active downloads error:', error);
+    return NextResponse.json([], { status: 500 });
+  }
+}
+
+function handleDownloadProgressSSE(downloadId: string | null) {
+  if (!downloadId) {
+    return NextResponse.json({ error: 'Download ID (id) is required' }, { status: 400 });
+  }
+
+  // SSE stream that polls the DB every 500ms and pushes updates to the client.
+  // When the download finishes (completed/error/cancelled), the stream closes.
+  const encoder = new TextEncoder();
+  let closed = false;
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const interval = setInterval(() => {
+        try {
+          if (closed) { clearInterval(interval); return; }
+
+          const rec = getDownload(downloadId);
+          if (!rec) {
+            controller.enqueue(
+              encoder.encode(`event: error\ndata: ${JSON.stringify({ status: 'error', message: 'Download not found' })}\n\n`)
+            );
+            clearInterval(interval);
+            closed = true;
+            controller.close();
+            return;
+          }
+
+          controller.enqueue(
+            encoder.encode(`event: progress\ndata: ${JSON.stringify({
+              download_id: rec.download_id,
+              model_id: rec.model_id,
+              status: rec.status,
+              progress: rec.progress,
+              message: rec.message,
+              bytes_done: rec.bytes_done,
+              bytes_total: rec.bytes_total,
+            })}\n\n`)
+          );
+
+          if (rec.status === 'completed' || rec.status === 'error' || rec.status === 'cancelled') {
+            clearInterval(interval);
+            closed = true;
+            controller.close();
+          }
+        } catch {
+          clearInterval(interval);
+          if (!closed) { closed = true; controller.close(); }
+        }
+      }, 500);
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
 async function handleProviderModels(provider: string | null) {
   if (!provider) {
     return NextResponse.json({ error: 'Provider parameter is required' }, { status: 400 });
@@ -225,220 +346,6 @@ async function handleProviderModels(provider: string | null) {
   } catch (error) {
     console.error(`Provider models error for ${provider}:`, error);
     return NextResponse.json([], { status: 500 });
-  }
-}
-
-async function downloadModelDirect(modelId: string) {
-  try {
-    // Create a custom response for Server-Sent Events
-    let controller: ReadableStreamDefaultController;
-
-    const stream = new ReadableStream({
-      start(ctrl) {
-        controller = ctrl;
-        // Send initial progress
-        controller.enqueue(`event: progress\ndata: ${JSON.stringify({ status: 'starting', progress: 0, message: 'Starting download...' })}\n\n`);
-
-        // Start the download process asynchronously
-        downloadModelFromHuggingFace(modelId, controller);
-      }
-    });
-
-    const response = new NextResponse(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Cache-Control',
-      },
-    });
-
-    return response;
-  } catch (error) {
-    console.error('Direct download error:', error);
-    return NextResponse.json({ error: 'Failed to start download' }, { status: 500 });
-  }
-}
-
-async function downloadModelWithOllama(modelId: string, host?: string | null) {
-  // Create a custom response for Server-Sent Events
-  let controller: ReadableStreamDefaultController;
-
-  const stream = new ReadableStream({
-    start(ctrl) {
-      controller = ctrl;
-      // Send initial progress
-      controller.enqueue(`event: progress\ndata: ${JSON.stringify({ status: 'starting', progress: 0, message: 'Starting download...' })}\n\n`);
-
-      // Start the download process asynchronously
-      downloadModelWithProgress(modelId, controller, host);
-    }
-  });
-
-  const response = new NextResponse(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control',
-    },
-  });
-
-  return response;
-}
-
-async function downloadModelFromHuggingFace(modelId: string, controller: ReadableStreamDefaultController) {
-  try {
-    // First, get the model info to find GGUF files
-    const modelInfoResponse = await fetch(`https://huggingface.co/api/models/${modelId}`);
-    if (!modelInfoResponse.ok) {
-      throw new Error('Model not found on Hugging Face');
-    }
-
-    const modelInfo = await modelInfoResponse.json();
-
-    // Get the model files
-    const filesResponse = await fetch(`https://huggingface.co/api/models/${modelId}/tree/main`);
-    if (!filesResponse.ok) {
-      throw new Error('Could not fetch model files');
-    }
-
-    const files = await filesResponse.json();
-
-    // Find GGUF files (prioritize smaller ones first)
-    const ggufFiles = files
-      .filter((file: any) => file.type === 'file' && file.path.toLowerCase().endsWith('.gguf'))
-      .sort((a: any, b: any) => a.size - b.size);
-
-    if (ggufFiles.length === 0) {
-      throw new Error('No GGUF files found for this model');
-    }
-
-    // Use the smallest GGUF file (usually Q4_K_M or similar)
-    const selectedFile = ggufFiles[0];
-    const downloadUrl = `https://huggingface.co/${modelId}/resolve/main/${selectedFile.path}`;
-    const filename = selectedFile.path.split('/').pop() || `${modelId.split('/')[1]}.gguf`;
-    const filePath = path.join(MODELS_DIR, filename);
-
-    // Start download
-    const downloadResponse = await fetch(downloadUrl);
-    if (!downloadResponse.ok) {
-      throw new Error('Failed to download model file');
-    }
-
-    const contentLength = parseInt(downloadResponse.headers.get('content-length') || '0');
-    const reader = downloadResponse.body?.getReader();
-
-    if (!reader) {
-      throw new Error('Failed to create download stream');
-    }
-
-    const fileStream = fs.createWriteStream(filePath);
-    let downloadedBytes = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-
-      fileStream.write(value);
-      downloadedBytes += value.length;
-
-      const progress = contentLength > 0 ? Math.round((downloadedBytes / contentLength) * 100) : 0;
-      const message = `Downloading ${filename}... (${formatSize(downloadedBytes)}${contentLength > 0 ? ` / ${formatSize(contentLength)}` : ''})`;
-
-      controller.enqueue(`event: progress\ndata: ${JSON.stringify({
-        status: 'downloading',
-        progress,
-        message,
-        downloaded: downloadedBytes,
-        total: contentLength
-      })}\n\n`);
-    }
-
-    fileStream.end();
-
-    // Wait for file to be written
-    await new Promise<void>((resolve, reject) => {
-      fileStream.on('finish', () => resolve());
-      fileStream.on('error', reject);
-    });
-
-    // Send completion
-    controller.enqueue(`event: complete\ndata: ${JSON.stringify({
-      status: 'completed',
-      progress: 100,
-      message: `Download completed! Model saved as ${filename}`,
-      filename,
-      path: filePath
-    })}\n\n`);
-
-  } catch (error) {
-    console.error('Direct download error:', error);
-    controller.enqueue(`event: error\ndata: ${JSON.stringify({
-      status: 'error',
-      progress: 0,
-      message: `Download failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-    })}\n\n`);
-  } finally {
-    controller.close();
-  }
-}
-
-async function downloadModelWithProgress(modelId: string, controller: ReadableStreamDefaultController, host?: string | null) {
-  try {
-    // Use Ollama's pull with progress tracking
-    const ollamaInstance = host ? new Ollama({ host }) : ollama;
-    const pullResponse = await ollamaInstance.pull({
-      model: modelId,
-      stream: true
-    });
-
-    let totalLayers = 0;
-    let completedLayers = 0;
-
-    for await (const chunk of pullResponse) {
-      if (chunk.total) {
-        totalLayers = chunk.total;
-      }
-
-      if (chunk.completed) {
-        completedLayers = chunk.completed;
-      }
-
-      const progress = totalLayers > 0 ? Math.round((completedLayers / totalLayers) * 100) : 0;
-      const message = chunk.status || `Downloading ${modelId}...`;
-
-      controller.enqueue(`event: progress\ndata: ${JSON.stringify({
-        status: 'downloading',
-        progress,
-        message,
-        completed: completedLayers,
-        total: totalLayers
-      })}\n\n`);
-
-      // Small delay to prevent overwhelming the client
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    // Send completion
-    controller.enqueue(`event: complete\ndata: ${JSON.stringify({
-      status: 'completed',
-      progress: 100,
-      message: 'Download completed successfully!'
-    })}\n\n`);
-
-  } catch (error) {
-    console.error('Download error:', error);
-    controller.enqueue(`event: error\ndata: ${JSON.stringify({
-      status: 'error',
-      progress: 0,
-      message: `Download failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-    })}\n\n`);
-  } finally {
-    controller.close();
   }
 }
 
