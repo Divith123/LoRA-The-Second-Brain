@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Enable standalone output so we can run the built Next server from Electron.
+  output: 'standalone',
   webpack: (config, { isServer }) => {
     // Exclude @xenova/transformers binary files from webpack processing
     config.module.rules.push({

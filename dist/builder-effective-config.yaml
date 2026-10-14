@@ -1,0 +1,30 @@
+directories:
+  output: dist
+  buildResources: build
+appId: com.yourdomain.yourapp
+productName: LoRA The Second Brain
+asar: true
+files:
+  - filter:
+      - electron/**/*
+      - .next/standalone/**/*
+      - .next/static/**/*
+      - public/**/*
+      - package.json
+extraResources:
+  - from: .next/static
+    to: .next/static
+  - from: public
+    to: public
+  - from: dist
+    to: dist
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-Setup.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: false
+electronVersion: 31.7.7
