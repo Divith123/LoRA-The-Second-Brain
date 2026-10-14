@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "./ui/button";
-import { ChevronDown, Check, Download, Cpu, Trash2, Search, AlertCircle, Key, Zap, Sparkles, Globe } from "lucide-react";
+import { ChevronDown, Check, Download, Cpu, Trash2, Search, AlertCircle, Key, Zap, Sparkles, Globe, MemoryStick, CheckCircle2, XCircle, AlertTriangle, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useLocalModels, useHuggingFaceModels, useDownloadModel, useDeleteModel, useOllamaStatus, useLocalFiles, useProviderModels } from "@/lib/model-hooks";
+import { useLocalModels, useHuggingFaceModels, useDownloadModel, useDeleteModel, useOllamaStatus, useLocalFiles, useProviderModels, useSystemSpecs, useActiveDownloads } from "@/lib/model-hooks";
+import type { DownloadProgress } from "@/lib/model-hooks";
 import { ProviderType } from "@/lib/model-types";
+import { computeCompatibility, CompatLevel } from "@/lib/model-compat";
 import { toast } from "sonner";
 
 type ModelSelectorProps = {
@@ -25,14 +27,80 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
   });
   const [showApiKeys, setShowApiKeys] = useState(false);
   const [showOllamaWarning, setShowOllamaWarning] = useState(true);
-  const [downloadingModels, setDownloadingModels] = useState<Record<string, { progress: number; message: string }>>({});
+  // Keyed by modelId. downloadId is needed to cancel the server-side job.
+  const [downloadingModels, setDownloadingModels] = useState<
+    Record<string, { downloadId: string; progress: number; message: string; status: string; completed?: number; total?: number }>
+  >({});
 
   const { data: localModels = [], isLoading: isLoadingLocal } = useLocalModels();
   const { data: localFiles = [], isLoading: isLoadingLocalFiles } = useLocalFiles();
   const { data: hfModels = [], isLoading: isLoadingHF } = useHuggingFaceModels(searchQuery);
   const { data: isOllamaRunning = false } = useOllamaStatus();
-  const { startDownload, cancelDownload, isPending } = useDownloadModel();
+  const { data: systemSpecs } = useSystemSpecs();
+  const { data: activeDownloads = [] } = useActiveDownloads();
+  const { startDownload, cancelDownload, reconnectDownload, isPending } = useDownloadModel();
   const deleteMutation = useDeleteModel();
+
+  // Build the onProgress callback once so hydrate + start share identical logic.
+  const makeProgressHandler = (modelId: string) => (progress: DownloadProgress) => {
+    setDownloadingModels(prev => ({
+      ...prev,
+      [modelId]: {
+        downloadId: progress.downloadId,
+        progress: progress.progress,
+        message: progress.message,
+        status: progress.status,
+        completed: progress.bytesDone,
+        total: progress.bytesTotal,
+      }
+    }));
+
+    if (progress.status === 'completed' || progress.status === 'cancelled' || progress.status === 'error') {
+      if (progress.status === 'completed') toast.success(`Downloaded ${modelId} successfully`);
+      if (progress.status === 'error') toast.error(`Download failed: ${progress.message}`);
+      setTimeout(() => {
+        setDownloadingModels(prev => {
+          const updated = { ...prev };
+          delete updated[modelId];
+          return updated;
+        });
+      }, 800);
+    }
+  };
+
+  // Hydrate from server on mount + whenever the poll refreshes. This is what
+  // makes a download survive a page refresh: the server keeps running the job,
+  // and the UI re-attaches to it. Reconnect SSE for anything we aren't tracking.
+  const reconnectedIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const rec of activeDownloads) {
+      setDownloadingModels(prev => {
+        // Don't clobber a fresher local update for the same model.
+        const existing = prev[rec.model_id];
+        if (existing && existing.downloadId === rec.download_id && existing.progress >= rec.progress) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [rec.model_id]: {
+            downloadId: rec.download_id,
+            progress: rec.progress,
+            message: rec.message,
+            status: rec.status,
+            completed: rec.bytes_done,
+            total: rec.bytes_total,
+          }
+        };
+      });
+
+      // Attach a live SSE listener once per download id.
+      if (!reconnectedIds.current.has(rec.download_id)) {
+        reconnectedIds.current.add(rec.download_id);
+        reconnectDownload(rec.download_id, makeProgressHandler(rec.model_id));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDownloads]);
 
   // Provider models
   const { data: openaiModels = [], isLoading: isLoadingOpenAI } = useProviderModels('openai');
@@ -64,31 +132,23 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
     try {
       setDownloadingModels(prev => ({
         ...prev,
-        [modelId]: { progress: 0, message: 'Starting download...' }
+        [modelId]: { downloadId: '', progress: 0, message: 'Starting download...', status: 'starting' }
       }));
 
-      const ok = await startDownload({
+      const record = await startDownload({
         modelId,
         downloadSource,
-        onProgress: (progress) => {
-          setDownloadingModels(prev => ({
-            ...prev,
-            [modelId]: { progress: progress.progress, message: progress.message }
-          }));
-
-          if (progress.status === 'completed' || progress.status === 'cancelled') {
-            setTimeout(() => {
-              setDownloadingModels(prev => {
-                const updated = { ...prev };
-                delete updated[modelId];
-                return updated;
-              });
-            }, 500);
-          }
-        }
+        onProgress: makeProgressHandler(modelId),
       });
 
-      if (ok) toast.success(`Downloaded ${modelId} successfully`);
+      if (!record) {
+        setDownloadingModels(prev => {
+          const updated = { ...prev };
+          delete updated[modelId];
+          return updated;
+        });
+        toast.error(`Failed to download ${modelId}`);
+      }
     } catch (error) {
       console.error('Download error:', error);
       setDownloadingModels(prev => {
@@ -107,6 +167,94 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
     } catch (error) {
       toast.error(`Failed to delete ${modelName}`);
     }
+  };
+
+  const formatBytes = (bytes?: number) => {
+    if (!bytes || bytes <= 0) return null;
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+  };
+
+  // Compatibility badge: shows whether a model fits the current machine's RAM
+  const compatStyles: Record<CompatLevel, { className: string; Icon: typeof CheckCircle2 }> = {
+    'runs-well': {
+      className: 'text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/50 border-green-200 dark:border-green-800',
+      Icon: CheckCircle2,
+    },
+    'tight': {
+      className: 'text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800',
+      Icon: AlertTriangle,
+    },
+    'wont-fit': {
+      className: 'text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/50 border-red-200 dark:border-red-800',
+      Icon: XCircle,
+    },
+    'unknown': {
+      className: 'text-muted-foreground bg-muted border-transparent',
+      Icon: HelpCircle,
+    },
+  };
+
+  const renderCompatBadge = (modelId: string) => {
+    const result = computeCompatibility(modelId, systemSpecs);
+    const { className, Icon } = compatStyles[result.level];
+    return (
+      <div
+        className={cn(
+          'flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap',
+          className
+        )}
+        title={result.detail}
+      >
+        <Icon size={10} />
+        <span>{result.label}</span>
+      </div>
+    );
+  };
+
+  // Shared download-progress panel used across tabs
+  const renderDownloadProgress = (modelId: string) => {
+    const d = downloadingModels[modelId];
+    if (!d) return null;
+
+    const downloaded = formatBytes(d.completed);
+    const total = formatBytes(d.total);
+
+    return (
+      <div className="mt-2 p-3 rounded-lg border border-primary/20 bg-primary/5 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-foreground truncate">
+            {d.message || 'Downloading...'}
+          </span>
+          <span className="text-xs font-semibold text-primary shrink-0">{d.progress}%</span>
+        </div>
+
+        {/* Progress bar */}
+        <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+          <div
+            className="bg-primary h-2 rounded-full transition-all duration-300"
+            style={{ width: `${d.progress}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-muted-foreground">
+            {downloaded && total ? `${downloaded} / ${total}` : d.status}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => d.downloadId && cancelDownload(d.downloadId)}
+            disabled={!d.downloadId}
+            className="h-6 px-2 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10"
+            title="Cancel download"
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   const getDisplayName = (modelName: string, provider?: ProviderType) => {
@@ -256,16 +404,47 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
 
             {/* Search for Browse tab */}
             {activeTab === "browse" && (
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Search models (e.g., llama, gemma, gguf)..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-background/50 border border-muted rounded-lg focus:border-primary/50 transition-colors"
-                />
-              </div>
+              <>
+                {/* System specs banner — tells users what their machine can handle */}
+                <div className="mb-3 p-3 rounded-lg border border-border bg-muted/40">
+                  {systemSpecs ? (
+                    <>
+                      <div className="flex items-center gap-2 mb-1">
+                        <MemoryStick size={15} className="text-primary" />
+                        <span className="text-sm font-medium">Your system</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-medium text-foreground">{systemSpecs.totalMemoryGB} GB RAM</span>
+                        <span>•</span>
+                        <span>{systemSpecs.cpuCores} CPU cores</span>
+                        <span>•</span>
+                        <span className="truncate max-w-[220px]" title={systemSpecs.cpuModel}>{systemSpecs.cpuModel}</span>
+                        <span>•</span>
+                        <span className="uppercase">{systemSpecs.platform} / {systemSpecs.arch}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1.5">
+                        Badges below estimate whether each model fits this machine. Estimates are approximate.
+                      </p>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <MemoryStick size={15} />
+                      <span>Detecting system specs…</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search models (e.g., llama, gemma, gguf)..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-background/50 border border-muted rounded-lg focus:border-primary/50 transition-colors"
+                  />
+                </div>
+              </>
             )}
 
             {/* API Keys Section */}
@@ -363,6 +542,21 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
               </div>
             )}
 
+            {/* Active downloads banner (visible across all tabs) */}
+            {Object.keys(downloadingModels).length > 0 && (
+              <div className="mb-4 space-y-2">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Active Downloads
+                </h4>
+                {Object.keys(downloadingModels).map((modelId) => (
+                  <div key={`active-${modelId}`}>
+                    <div className="text-xs font-medium truncate mb-1">{modelId}</div>
+                    {renderDownloadProgress(modelId)}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="space-y-2 max-h-[50vh] overflow-y-auto">
               {activeTab === "ollama" ? (
                 // Ollama Models Tab
@@ -382,7 +576,7 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                           variant="outline"
                           size="sm"
                           onClick={() => handleDownload(model, 'ollama')}
-                          disabled={!isOllamaRunning || isPending}
+                          disabled={!isOllamaRunning || !!downloadingModels[model]}
                           className="text-xs"
                         >
                           <Download size={12} className="mr-1" />
@@ -563,7 +757,10 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <span className="text-lg">{getModelIcon(model.name)}</span>
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate">{model.name}</div>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-medium truncate">{model.name}</span>
+                              {renderCompatBadge(model.id)}
+                            </div>
                             <div className="text-xs text-muted-foreground flex items-center gap-2">
                               <span>{model.author}</span>
                               <span>•</span>
@@ -590,30 +787,8 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
                             </div>
                           )}
                           {downloadingModels[model.id] ? (
-                            <div className="flex flex-col items-center gap-1 min-w-[80px]">
-                              {/* Progress bar */}
-                              <div className="w-full bg-muted rounded-full h-1.5">
-                                <div
-                                  className="bg-primary h-1.5 rounded-full transition-all duration-300"
-                                  style={{ width: `${downloadingModels[model.id].progress}%` }}
-                                />
-                              </div>
-
-                              {/* Percentage text */}
-                              <span className="text-xs text-muted-foreground">
-                                {downloadingModels[model.id].progress}%
-                              </span>
-
-                              {/* Cancel button */}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => cancelDownload()} // <-- call hook cancel
-                                className="text-destructive hover:text-destructive hover:bg-destructive/10 mt-1"
-                                title="Cancel download"
-                              >
-                                Cancel
-                              </Button>
+                            <div className="min-w-[180px]">
+                              {renderDownloadProgress(model.id)}
                             </div>
                           ) : (
                             <div className="flex gap-1">

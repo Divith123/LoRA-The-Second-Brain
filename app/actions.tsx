@@ -11,6 +11,7 @@ import fs from 'fs/promises';
 import { retrieveRelevant } from "@/lib/rag-store";
 import { extractText } from '@/lib/file-processing';
 import { ProviderType } from "@/lib/model-types";
+import { buildTurnContext } from "@/lib/server/context-builder";
 import { DatabaseService } from "@/lib/database";
 import { EncryptedConversationStorage } from "@/lib/encrypted-conversation-storage";
 import { filterThinkingContent } from "@/lib/utils";
@@ -101,6 +102,7 @@ export async function continueConversation(
     fileIds?: string[];
     conversationHistory?: string;
     mode?: "think-longer" | "deep-research" | "web-search" | "study" | "sarcastic";
+    userId?: string; // Phase 1: enables persistent hybrid retrieval + structured memory
   }
 ) {
   // const ip = headers().get("x-forwarded-for") ?? "unknown";
@@ -173,6 +175,52 @@ export async function continueConversation(
     .map((c, i) => `[#${i + 1}] (doc:${c.docId}, chunk:${c.idx})\n${c.text}`)
     .join("\n\n");
 
+  // 🔥 Phase 1: persistent hybrid retrieval + structured personal memory.
+  // Flag-guarded inside buildTurnContext; contributes empty strings if disabled
+  // or on error, so the legacy TF-IDF path above remains a safe fallback.
+  let hybridRetrievalContext = "";
+  let structuredMemoryContext = "";
+  if (opts?.userId) {
+    try {
+      // IMPORTANT: do NOT restrict retrieval to opts.fileIds. The "second brain"
+      // should recall from the user's entire saved corpus, not only the files
+      // attached to this message. (Restricting to fileIds was the cause of
+      // retrievedChunks=0 when a re-upload was deduped to an existing docId or
+      // when the attached file was never ingested.) Explicitly-attached files
+      // are still injected verbatim via the legacy fileContext path above.
+      const built = await buildTurnContext({
+        userId: opts.userId,
+        query: lastUserMsg,
+        docFilter: null, // corpus-wide
+      });
+      hybridRetrievalContext = built.retrievalContext;
+      structuredMemoryContext = built.memoryContext;
+      const s = built.stats;
+      console.log(
+        "🧠 [phase1] retrieval=" + (s.retrievalEnabled ? "on" : "off"),
+        "memory=" + (s.memoryEnabled ? "on" : "off"),
+        "| indexed docs/chunks=" + s.indexedDocs + "/" + s.indexedChunks,
+        "| scope=" + s.scope,
+        "| denseCand=" + s.denseCandidates,
+        "bm25Cand=" + s.bm25Candidates,
+        "| retrievedChunks=" + s.retrievedChunks,
+        "| activeMemories=" + s.activeMemories,
+        "injectedMemories=" + s.injectedMemories
+      );
+      if (s.retrievalEnabled && s.indexedChunks === 0) {
+        console.log(
+          "🧠 [phase1] note: 0 chunks indexed for this user — upload a document (while logged in) so it is ingested into the Phase 1 store."
+        );
+      } else if (s.retrievalEnabled && s.retrievedChunks === 0) {
+        console.log(
+          "🧠 [phase1] note: corpus has " + s.indexedChunks + " chunk(s) but none matched the query (no dense/BM25 overlap)."
+        );
+      }
+    } catch (e) {
+      console.error("Phase 1 context build failed (non-fatal):", e);
+    }
+  }
+
   // 🔥 NEW: Use provided conversation history for knowledge base context
   let knowledgeBaseContext = opts?.conversationHistory || '';
 
@@ -221,8 +269,18 @@ export async function continueConversation(
     }
   }
 
-  // Combine any server-built fileContext snippets with retrieval text and knowledge base
-  const combinedContextText = [fileContext, ctxText, knowledgeBaseContext].filter(Boolean).join("\n\n");
+  // Combine any server-built fileContext snippets with retrieval text and knowledge base.
+  // Phase 1 hybrid retrieval + structured memory are prepended (higher priority)
+  // when available; the legacy TF-IDF ctxText remains as a fallback contributor.
+  const combinedContextText = [
+    structuredMemoryContext,
+    hybridRetrievalContext,
+    fileContext,
+    ctxText,
+    knowledgeBaseContext,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   console.log('🔗 Context combination:');
   console.log('- fileContext length:', fileContext?.length || 0);
@@ -238,7 +296,12 @@ export async function continueConversation(
             "You are LoRA, the Second Brain - a personal AI companion that remembers and connects the user's thoughts across conversations. " +
             (modePrompt ? `\n\n${modePrompt}` : '') +
             (modeInstructions ? `\n\n${modeInstructions}` : '') +
-            "\n\nIMPORTANT: If files are attached to this message, you MUST use the provided file content in your response. " +
+            "\n\nCONTEXT PRECEDENCE (apply strictly): For questions about the USER themselves (their preferences, choices, personal facts), " +
+            "the 'KNOWN FACTS ABOUT THE USER' block is AUTHORITATIVE and takes precedence over uploaded documents, retrieved context, and prior chatter. " +
+            "Never answer a personal question (e.g. 'which editor do I prefer?') from a résumé or other document when a matching known fact exists. " +
+            "Uploaded documents and retrieved context are for answering questions ABOUT THOSE DOCUMENTS, not for inferring the user's current personal preferences. " +
+            "If no known fact covers a personal question, say you don't have that saved rather than guessing from documents.\n\n" +
+            "IMPORTANT: If files are attached to this message, you MUST use the provided file content in your response. " +
             "Do NOT say you cannot access files or that you don't have access to the content. " +
             "The file content is provided below - read it and answer questions based on it. " +
             "If a file shows '(No text content could be extracted)', inform the user that you cannot read that type of file. " +

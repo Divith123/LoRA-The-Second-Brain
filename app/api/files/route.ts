@@ -5,6 +5,8 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import { processUploadedFile, type UploadedFileMeta as Meta } from "@/lib/file-processing";
 import { indexDocument } from "@/lib/rag-store";
+import { ingestDocument } from "@/lib/server/retrieval-store";
+import { retrievalConfig } from "@/lib/config";
 import { cookies } from "next/headers";
 
 export const runtime = "nodejs";
@@ -84,7 +86,31 @@ export async function POST(req: NextRequest) {
       };
 
       const processed = await processUploadedFile(meta);
+
+      // Legacy in-memory TF-IDF index (kept as a fallback; resets on restart).
       await indexDocument(meta.id, processed.chunks);
+
+      // Phase 1: persist into the hybrid retrieval store so retrieval survives
+      // restarts. Keyed by userId for isolation; docId reuses the upload id so
+      // client-side fileIds continue to resolve. Non-fatal on failure.
+      if (retrievalConfig.enabled) {
+        try {
+          const res = await ingestDocument({
+            userId,
+            name: meta.name,
+            text: processed.text,
+            source: "upload",
+            mime: meta.mime,
+            docId: meta.id,
+          });
+          console.log(
+            `[files] persisted "${meta.name}" docId=${res.docId} chunks=${res.chunkCount} duplicate=${res.duplicate} dense=${res.denseIndexed}`
+          );
+        } catch (e) {
+          console.error("[files] persistent ingest failed (non-fatal):", e);
+        }
+      }
+
       saved.push({
         ...meta,
         textLen: processed.text.length,

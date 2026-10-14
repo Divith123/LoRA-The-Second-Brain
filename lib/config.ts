@@ -63,3 +63,67 @@ export function getRecommendedModels(memoryMB: number): string[] {
     return ['google/gemma-7b-it', 'meta/llama-2-13b-chat', 'microsoft/phi-2'];
   }
 }
+
+// ===================== Phase 1: Retrieval & Memory config =====================
+// Server-side configuration for the persistent hybrid-retrieval pipeline and
+// the structured personal-memory store. All values are env-overridable so no
+// machine-specific settings are hardcoded. These flags let the new layers be
+// turned on/off without touching the chat orchestration code.
+
+function envBool(name: string, def: boolean): boolean {
+  const v = process.env[name];
+  if (v === undefined) return def;
+  return /^(1|true|yes|on)$/i.test(v.trim());
+}
+
+function envNum(name: string, def: number): number {
+  const v = process.env[name];
+  if (v === undefined) return def;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+}
+
+export interface RetrievalConfig {
+  /** Master switch for the persistent hybrid retrieval store. */
+  enabled: boolean;
+  /** Enable dense (embedding) retrieval leg. */
+  useDense: boolean;
+  /** Enable BM25 (lexical) retrieval leg. */
+  useBm25: boolean;
+  /** Local sentence-embedding model id (downloaded once, then cached offline). */
+  embeddingModel: string;
+  /** Chunking parameters. */
+  chunkSize: number;
+  chunkOverlap: number;
+  /** Reciprocal Rank Fusion constant k. */
+  rrfK: number;
+  /** How many fused chunks to return to the prompt builder. */
+  topK: number;
+  /** Per-leg candidate pool size before fusion. */
+  candidatePool: number;
+}
+
+export const retrievalConfig: RetrievalConfig = {
+  enabled: envBool("SECOND_BRAIN_RETRIEVAL", true),
+  useDense: envBool("SECOND_BRAIN_RETRIEVAL_DENSE", true),
+  useBm25: envBool("SECOND_BRAIN_RETRIEVAL_BM25", true),
+  embeddingModel:
+    process.env.SECOND_BRAIN_EMBED_MODEL || "Xenova/all-MiniLM-L6-v2",
+  chunkSize: envNum("SECOND_BRAIN_CHUNK_SIZE", 1000),
+  chunkOverlap: envNum("SECOND_BRAIN_CHUNK_OVERLAP", 200),
+  rrfK: envNum("SECOND_BRAIN_RRF_K", 60),
+  topK: envNum("SECOND_BRAIN_TOP_K", 6),
+  candidatePool: envNum("SECOND_BRAIN_CANDIDATE_POOL", 50),
+};
+
+export interface MemoryConfig {
+  /** Master switch for injecting structured personal memory into prompts. */
+  enabled: boolean;
+  /** Max active memory records surfaced into a single prompt. */
+  maxInjected: number;
+}
+
+export const memoryConfig: MemoryConfig = {
+  enabled: envBool("SECOND_BRAIN_MEMORY", true),
+  maxInjected: envNum("SECOND_BRAIN_MEMORY_MAX_INJECTED", 20),
+};
